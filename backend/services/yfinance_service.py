@@ -357,6 +357,7 @@ def get_stock_data(ticker: str) -> dict:
         "week_52_high": info.get("fiftyTwoWeekHigh") or _fi("year_high"),
         "week_52_low": info.get("fiftyTwoWeekLow") or _fi("year_low"),
         "market_cap": info.get("marketCap") or _fi("market_cap"),
+        "shares_outstanding": info.get("sharesOutstanding") or _fi("shares"),
         "overview": {
             "revenue_ttm": revenue,
             "eps_ttm": eps_ttm,

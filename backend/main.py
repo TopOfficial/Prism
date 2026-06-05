@@ -84,7 +84,15 @@ def get_brief(ticker: str, request: Request):
     fcf_ttm = stock["overview"].get("fcf_ttm")
     de_ratio = stock["balance_sheet"].get("de_ratio")
     eps_ttm = stock["overview"].get("eps_ttm")
-    verdict = compute_verdict(pe, sector_pe, fcf_ttm, de_ratio, eps_ttm)
+    shares_outstanding = stock.get("shares_outstanding")
+    verdict = compute_verdict(
+        pe, sector_pe, fcf_ttm, de_ratio, eps_ttm,
+        financials_history=stock.get("financials_history"),
+        total_debt=stock["balance_sheet"].get("total_debt"),
+        cash=stock["balance_sheet"].get("cash"),
+        shares_outstanding=shares_outstanding,
+        price=price,
+    )
 
     valuation = {
         "pe": pe,
