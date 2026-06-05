@@ -214,8 +214,19 @@ def get_stock_data(ticker: str) -> dict:
 
     info = _safe(lambda: t.info) or {}
 
-    price = info.get("currentPrice") or info.get("regularMarketPrice")
-    prev_close = info.get("previousClose") or info.get("regularMarketPreviousClose")
+    # fast_info uses a lighter endpoint that works reliably on cloud hosts
+    fi = _safe(lambda: t.fast_info) or {}
+    def _fi(key):
+        try:
+            v = getattr(fi, key, None)
+            return float(v) if v is not None else None
+        except Exception:
+            return None
+
+    price = (info.get("currentPrice") or info.get("regularMarketPrice")
+             or _fi("last_price"))
+    prev_close = (info.get("previousClose") or info.get("regularMarketPreviousClose")
+                  or _fi("previous_close"))
     if price is not None and prev_close is not None and prev_close != 0:
         change_pct = ((float(price) - float(prev_close)) / float(prev_close)) * 100
     else:
@@ -340,12 +351,12 @@ def get_stock_data(ticker: str) -> dict:
         "ticker": ticker.upper(),
         "company_name": info.get("longName") or info.get("shortName"),
         "sector": info.get("sector"),
-        "currency": info.get("currency", "USD"),
+        "currency": info.get("currency") or getattr(fi, "currency", None) or "USD",
         "price": float(price) if price is not None else None,
         "change_pct_1d": float(change_pct) if change_pct is not None else None,
-        "week_52_high": info.get("fiftyTwoWeekHigh"),
-        "week_52_low": info.get("fiftyTwoWeekLow"),
-        "market_cap": info.get("marketCap"),
+        "week_52_high": info.get("fiftyTwoWeekHigh") or _fi("year_high"),
+        "week_52_low": info.get("fiftyTwoWeekLow") or _fi("year_low"),
+        "market_cap": info.get("marketCap") or _fi("market_cap"),
         "overview": {
             "revenue_ttm": revenue,
             "eps_ttm": eps_ttm,
