@@ -5,3 +5,6 @@ requests
 feedparser
 slowapi
 python-dotenv
+anthropic
+supabase
+stripe

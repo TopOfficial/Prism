@@ -78,6 +78,10 @@ body {
   to { transform: rotate(360deg); }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes scanLine {
   0%   { transform: translateY(-100%); opacity: 0; }
   10%  { opacity: 0.6; }

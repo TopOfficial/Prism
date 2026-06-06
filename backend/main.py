@@ -2,8 +2,9 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -13,7 +14,11 @@ from services.fmp_service import get_sector_pe, get_valuation, get_profile
 from services.news_service import get_news
 from services.verdict_service import compute_verdict
 from services.scoring import compute_quality_scores
+from services.research_service import run_stock_analysis
+from services.auth_service import verify_jwt, get_user_record, check_and_increment_search
+from services.stripe_service import create_checkout_session, handle_webhook
 
+security = HTTPBearer(auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Prism API")
 app.state.limiter = limiter
@@ -25,6 +30,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _get_user(creds: HTTPAuthorizationCredentials = Depends(security)):
+    if not creds:
+        return None
+    return verify_jwt(creds.credentials)
 
 
 @app.get("/health")
@@ -45,10 +56,109 @@ async def post_feedback(request: Request):
     return {"ok": True}
 
 
+@app.post("/create-checkout-session")
+async def checkout_session(request: Request, user=Depends(_get_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    body = await request.json()
+    plan = str(body.get("plan", "monthly"))
+    try:
+        url = create_checkout_session(user.id, user.email, plan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stripe error: {e}")
+    return {"checkout_url": url}
+
+
+@app.post("/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature")
+    try:
+        result = handle_webhook(payload, sig)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@app.get("/research/{ticker}")
+@limiter.limit("2/hour")
+def get_research(ticker: str, request: Request, user=Depends(_get_user)):
+    """Pro-only: 3-phase institutional equity analysis via Claude."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+
+    record = get_user_record(user.id)
+    if not record or not record.get("is_pro"):
+        raise HTTPException(status_code=403, detail="pro_required")
+
+    ticker = ticker.upper().strip()
+
+    stock = get_stock_data(ticker)
+    fmp_profile = get_profile(ticker)
+    fmp_val = get_valuation(ticker)
+
+    def _fill(a, b):
+        return a if a is not None else b
+
+    company_name = _fill(stock["company_name"], fmp_profile["company_name"])
+    sector       = _fill(stock["sector"],       fmp_profile["sector"])
+    price        = _fill(stock["price"],         fmp_profile["price"])
+    change_pct   = _fill(stock["change_pct_1d"], fmp_profile["change_pct_1d"])
+    market_cap   = _fill(stock["market_cap"],    fmp_profile["market_cap"])
+    week_52_high = _fill(stock["week_52_high"],  fmp_profile["week_52_high"])
+    week_52_low  = _fill(stock["week_52_low"],   fmp_profile["week_52_low"])
+
+    if stock["overview"].get("revenue_ttm") is None and company_name is None:
+        raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found")
+
+    valuation_raw = stock.get("valuation_raw", {})
+    valuation = {
+        "pe":        _fill(valuation_raw.get("pe"),        fmp_val.get("pe")),
+        "pb":        _fill(valuation_raw.get("pb"),        fmp_val.get("pb")),
+        "ps":        _fill(valuation_raw.get("ps"),        fmp_val.get("ps")),
+        "ev_ebitda": _fill(valuation_raw.get("ev_ebitda"), fmp_val.get("ev_ebitda")),
+        "sector_pe": get_sector_pe(sector),
+    }
+
+    prism_data = {
+        "ticker":             ticker,
+        "company_name":       company_name,
+        "sector":             sector,
+        "price":              price,
+        "change_pct_1d":      change_pct,
+        "market_cap":         market_cap,
+        "week_52_high":       week_52_high,
+        "week_52_low":        week_52_low,
+        "overview":           stock["overview"],
+        "balance_sheet":      stock["balance_sheet"],
+        "valuation":          valuation,
+        "financials_history": stock.get("financials_history"),
+        "earnings_history":   stock["earnings_history"],
+        "institutional":      stock["institutional"],
+    }
+
+    try:
+        report = run_stock_analysis(ticker, prism_data)
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+
+    return {"ticker": ticker, "report": report}
+
+
 @app.get("/brief/{ticker}")
 @limiter.limit("10/hour")
-def get_brief(ticker: str, request: Request):
+def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
     ticker = ticker.upper().strip()
+
+    # Search counter for logged-in free users
+    if user:
+        allowed, reason = check_and_increment_search(user.id)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
 
     stock = get_stock_data(ticker)
 
@@ -130,4 +240,5 @@ def get_brief(ticker: str, request: Request):
         "institutional": stock["institutional"],
         "verdict": verdict,
         "quality_scores": quality_scores,
+        "is_pro": bool(user and get_user_record(user.id) and get_user_record(user.id).get("is_pro")),
     }

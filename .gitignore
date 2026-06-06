@@ -42,3 +42,4 @@ logs/
 
 # ── Claude Flow internal ──
 .claude-flow/
+docs/monetization-build-plan.md
