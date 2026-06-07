@@ -1,4 +1,5 @@
 -- Run this in your Supabase project: SQL Editor → New query → paste → Run
+-- NOTE: if adding research_cache to an existing project, run section 3 separately.
 
 -- 1. Users table (extends Supabase auth.users)
 create table if not exists public.users (
@@ -42,3 +43,15 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- 3. Research report cache (shared across all Pro users, 24-hour TTL)
+create table if not exists public.research_cache (
+  ticker    text primary key,
+  report    text not null,
+  cached_at timestamptz not null default now()
+);
+
+alter table public.research_cache enable row level security;
+
+create policy "service role: all" on public.research_cache
+  using (true) with check (true);
