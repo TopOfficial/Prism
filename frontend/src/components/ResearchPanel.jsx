@@ -75,13 +75,12 @@ function PhaseIndicator({ active }) {
 }
 
 export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade }) {
-  const [status, setStatus] = useState("idle"); // idle | loading | done | error
+  const [status, setStatus] = useState("idle"); // idle | locked | loading | done | error
   const [report, setReport] = useState(null);
   const [errMsg, setErrMsg] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef(null);
 
-  // Reset when ticker changes
   useEffect(() => {
     setStatus("idle");
     setReport(null);
@@ -100,8 +99,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
   }, [status]);
 
   async function handleRun() {
-    if (!user) { onUpgrade(); return; }
-    if (!isPro) { onUpgrade("monthly"); return; }
+    if (!isPro) { setStatus("locked"); return; }
 
     setStatus("loading");
     setReport(null);
@@ -114,7 +112,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        if (body.detail === "pro_required") { setStatus("idle"); onUpgrade("monthly"); return; }
+        if (body.detail === "pro_required") { setStatus("locked"); return; }
         throw new Error(body.detail || `HTTP ${res.status}`);
       }
       const data = await res.json();
@@ -158,34 +156,8 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
       {/* Body */}
       <div className="px-5 py-4">
 
-        {/* IDLE — not logged in */}
-        {status === "idle" && !user && (
-          <div className="text-center py-4">
-            <p className="text-sm mb-1" style={{ color: "#64748B" }}>3-phase institutional analysis — Core Metrics, Bull/Bear, Stress Test.</p>
-            <p className="text-xs mb-4" style={{ color: "#3D5068" }}>Sign in and upgrade to Pro to unlock.</p>
-            <button onClick={() => onUpgrade()}
-              className="text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer"
-              style={{ background: "#A855F7", border: "none", color: "#fff" }}>
-              Sign In to Unlock
-            </button>
-          </div>
-        )}
-
-        {/* IDLE — logged in, not pro */}
-        {status === "idle" && user && !isPro && (
-          <div className="text-center py-4">
-            <p className="text-sm mb-1" style={{ color: "#64748B" }}>3-phase institutional analysis — Core Metrics, Bull/Bear, Stress Test.</p>
-            <p className="text-xs mb-4" style={{ color: "#3D5068" }}>Pro feature — upgrade to unlock unlimited deep research.</p>
-            <button onClick={() => onUpgrade("monthly")}
-              className="text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer"
-              style={{ background: "#A855F7", border: "none", color: "#fff" }}>
-              Upgrade to Pro — ฿199/mo
-            </button>
-          </div>
-        )}
-
-        {/* IDLE — pro user */}
-        {status === "idle" && user && isPro && (
+        {/* IDLE — show run button for everyone */}
+        {status === "idle" && (
           <div className="flex items-center justify-between">
             <p className="text-sm" style={{ color: "#64748B" }}>
               3-phase institutional analysis of <span style={{ color: "#A855F7" }}>{ticker}</span>. Takes ~30s.
@@ -197,6 +169,30 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
               onMouseLeave={e => e.currentTarget.style.background = "rgba(168,85,247,0.18)"}>
               Run Deep Analysis
             </button>
+          </div>
+        )}
+
+        {/* LOCKED — non-pro clicked the button */}
+        {status === "locked" && (
+          <div className="text-center py-6 animate-fade-in">
+            <div style={{ fontSize: 28, marginBottom: 10 }}>🔒</div>
+            <p className="text-sm font-semibold mb-1" style={{ color: "#E2E8F0" }}>Pro feature</p>
+            <p className="text-sm mb-5" style={{ color: "#64748B" }}>
+              {!user
+                ? "Sign in and upgrade to Pro to run 3-phase institutional analysis."
+                : "Upgrade to Pro to unlock unlimited Deep Research reports."}
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <button onClick={() => onUpgrade(user ? "monthly" : undefined)}
+                className="text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer"
+                style={{ background: "#A855F7", border: "none", color: "#fff" }}>
+                {user ? "Upgrade to Pro — ฿199/mo" : "Sign In to Unlock"}
+              </button>
+              <button onClick={() => setStatus("idle")}
+                style={{ fontSize: 12, color: "#3D5068", background: "none", border: "none", cursor: "pointer" }}>
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 

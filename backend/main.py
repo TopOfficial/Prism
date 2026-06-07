@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from services.yfinance_service import get_stock_data
-from services.fmp_service import get_sector_pe, get_valuation, get_profile
+from services.fmp_service import get_sector_pe, get_valuation, get_profile, search_tickers
 from services.news_service import get_news
 from services.verdict_service import compute_verdict
 from services.scoring import compute_quality_scores
@@ -41,6 +41,22 @@ def _get_user(creds: HTTPAuthorizationCredentials = Depends(security)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/search")
+def search(q: str = ""):
+    q = q.strip()
+    if len(q) < 1:
+        return []
+    return search_tickers(q)
+
+
+@app.get("/me")
+def get_me(user=Depends(_get_user)):
+    if not user:
+        return {"is_pro": False}
+    record = get_user_record(user.id)
+    return {"is_pro": bool(record and record.get("is_pro"))}
 
 
 @app.post("/feedback")

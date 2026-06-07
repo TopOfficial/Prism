@@ -43,13 +43,22 @@ def handle_webhook(payload: bytes, sig_header: str | None) -> dict:
     data = event["data"]["object"]
 
     if evt_type == "checkout.session.completed":
-        user_id = data.get("metadata", {}).get("user_id")
-        customer_id = data.get("customer")
+        try:
+            user_id = data["metadata"]["user_id"]
+        except (KeyError, TypeError):
+            user_id = None
+        try:
+            customer_id = data["customer"]
+        except (KeyError, TypeError):
+            customer_id = None
         if user_id:
             set_user_pro(user_id, True, customer_id)
 
     elif evt_type in ("customer.subscription.deleted", "customer.subscription.paused"):
-        customer_id = data.get("customer")
+        try:
+            customer_id = data["customer"]
+        except (KeyError, TypeError):
+            customer_id = None
         if customer_id:
             # Look up user by stripe_customer_id
             from services.auth_service import _sb

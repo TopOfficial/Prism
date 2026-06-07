@@ -60,6 +60,28 @@ def get_profile(ticker: str) -> dict:
     return result
 
 
+def search_tickers(query: str, limit: int = 8) -> list:
+    api_key = _key()
+    if not api_key or not query:
+        return []
+    try:
+        r = requests.get(
+            "https://financialmodelingprep.com/api/v3/search",
+            params={"query": query, "limit": limit, "apikey": api_key},
+            timeout=5,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, list):
+            return []
+        return [
+            {"symbol": d["symbol"], "name": d.get("name", ""), "exchange": d.get("exchangeShortName", "")}
+            for d in data if d.get("symbol")
+        ]
+    except Exception:
+        return []
+
+
 def get_sector_pe(sector: str) -> float | None:
     api_key = _key()
     if not api_key or not sector:

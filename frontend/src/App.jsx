@@ -19,14 +19,31 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [user, setUser] = useState(null);
+  const [isPro, setIsPro] = useState(false);
+  const [activeTab, setActiveTab] = useState("brief");
+
+  async function fetchProStatus(session) {
+    if (!session) { setIsPro(false); return; }
+    try {
+      const res = await fetch(`${API}/me`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const body = await res.json();
+      setIsPro(!!body.is_pro);
+    } catch {
+      setIsPro(false);
+    }
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      fetchProStatus(session);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) setShowAuth(false);
+      fetchProStatus(session);
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -52,7 +69,10 @@ export default function App() {
         }
         throw new Error(body.detail || `HTTP ${res.status}`);
       }
-      setData(await res.json());
+      const json = await res.json();
+      setData(json);
+      setActiveTab("brief");
+      if (json.is_pro !== undefined) setIsPro(!!json.is_pro);
     } catch (e) {
       setError(e.message || "Unknown error");
     } finally {
@@ -129,7 +149,7 @@ export default function App() {
           <div className="flex items-center gap-2 mt-1">
             {user ? (
               <>
-                {!data?.is_pro && (
+                {!isPro && (
                   <button onClick={() => handleUpgrade("monthly")}
                     className="text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-all duration-200"
                     style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.4)", color: "#A855F7" }}
@@ -143,7 +163,7 @@ export default function App() {
                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#4E6278" }}
                   onMouseEnter={e => e.currentTarget.style.color = "#64748B"}
                   onMouseLeave={e => e.currentTarget.style.color = "#4E6278"}>
-                  {user.email?.split("@")[0]}  ·  Sign Out
+                  {user.email?.split("@")[0]}{isPro && <span style={{ color: "#A855F7", marginLeft: 6 }}>Pro</span>}  ·  Sign Out
                 </button>
               </>
             ) : (
@@ -194,21 +214,45 @@ export default function App() {
           {error && error !== "daily_limit_reached" && <ErrorState ticker={ticker} message={error} />}
           {data && (
             <div className="flex flex-col gap-4 pb-12">
-              <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                <div className="flex-1 min-w-0">
-                  <BriefCard data={data} />
-                </div>
-                <div className="lg:w-[400px] xl:w-[440px] shrink-0 lg:sticky lg:top-6">
-                  <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} />
-                </div>
+              {/* Tab nav */}
+              <div className="flex items-center gap-1" style={{ borderBottom: "1px solid rgba(168,85,247,0.15)", paddingBottom: 0 }}>
+                {[{ id: "brief", label: "Brief" }, { id: "research", label: "Deep Research" }].map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
+                    style={{
+                      background: "none", border: "none",
+                      borderBottom: activeTab === tab.id ? "2px solid #A855F7" : "2px solid transparent",
+                      color: activeTab === tab.id ? "#A855F7" : "#3D5068",
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      marginBottom: -1,
+                    }}>
+                    {tab.label}
+                  </button>
+                ))}
               </div>
-              <ResearchPanel
-                ticker={data.ticker}
-                user={user}
-                isPro={!!data.is_pro}
-                apiBase={API}
-                onUpgrade={handleUpgrade}
-              />
+
+              {/* Tab: Brief */}
+              {activeTab === "brief" && (
+                <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <BriefCard data={data} />
+                  </div>
+                  <div className="lg:w-[400px] xl:w-[440px] shrink-0 lg:sticky lg:top-6">
+                    <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} />
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Deep Research */}
+              {activeTab === "research" && (
+                <ResearchPanel
+                  ticker={data.ticker}
+                  user={user}
+                  isPro={isPro}
+                  apiBase={API}
+                  onUpgrade={handleUpgrade}
+                />
+              )}
             </div>
           )}
         </main>

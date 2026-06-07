@@ -351,7 +351,7 @@ def get_stock_data(ticker: str) -> dict:
         "ticker": ticker.upper(),
         "company_name": info.get("longName") or info.get("shortName"),
         "sector": info.get("sector"),
-        "currency": info.get("currency") or getattr(fi, "currency", None) or "USD",
+        "currency": info.get("currency") or _fi("currency") or "USD",
         "price": float(price) if price is not None else None,
         "change_pct_1d": float(change_pct) if change_pct is not None else None,
         "week_52_high": info.get("fiftyTwoWeekHigh") or _fi("year_high"),
