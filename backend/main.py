@@ -217,6 +217,7 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         cash=stock["balance_sheet"].get("cash"),
         shares_outstanding=shares_outstanding,
         price=price,
+        ps=ps,
     )
 
     valuation = {
