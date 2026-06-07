@@ -99,7 +99,6 @@ async def stripe_webhook(request: Request):
 
 
 @app.get("/research/{ticker}")
-@limiter.limit("2/hour")
 def get_research(ticker: str, request: Request, user=Depends(_get_user)):
     """Pro-only: 3-phase institutional equity analysis via Claude."""
     if user is None:

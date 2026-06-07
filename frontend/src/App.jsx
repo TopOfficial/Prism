@@ -232,7 +232,7 @@ export default function App() {
               </div>
 
               {/* Tab: Brief */}
-              {activeTab === "brief" && (
+              <div style={{ display: activeTab === "brief" ? "block" : "none" }}>
                 <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                   <div className="flex-1 min-w-0">
                     <BriefCard data={data} />
@@ -241,10 +241,10 @@ export default function App() {
                     <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} />
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* Tab: Deep Research */}
-              {activeTab === "research" && (
+              {/* Tab: Deep Research — always mounted so report state survives tab switches */}
+              <div style={{ display: activeTab === "research" ? "block" : "none" }}>
                 <ResearchPanel
                   ticker={data.ticker}
                   user={user}
@@ -252,7 +252,7 @@ export default function App() {
                   apiBase={API}
                   onUpgrade={handleUpgrade}
                 />
-              )}
+              </div>
             </div>
           )}
         </main>

@@ -160,7 +160,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
         {status === "idle" && (
           <div className="flex items-center justify-between">
             <p className="text-sm" style={{ color: "#64748B" }}>
-              3-phase institutional analysis of <span style={{ color: "#A855F7" }}>{ticker}</span>. Takes ~30s.
+              3-phase institutional analysis of <span style={{ color: "#A855F7" }}>{ticker}</span>. Takes ~1-2 minutes.
             </p>
             <button onClick={handleRun}
               className="text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer transition-all ml-4 shrink-0"
