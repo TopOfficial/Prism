@@ -38,7 +38,7 @@ def _get_user(creds: HTTPAuthorizationCredentials = Depends(security)):
     return verify_jwt(creds.credentials)
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
 
