@@ -1,4 +1,5 @@
 import os
+import json
 import stripe
 from services.auth_service import grant_from_stripe, set_subscriber, _sb
 
@@ -77,10 +78,13 @@ def handle_webhook(payload: bytes, sig_header: str | None) -> dict:
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
     try:
-        event = s.Webhook.construct_event(payload, sig_header, webhook_secret)
+        s.Webhook.construct_event(payload, sig_header, webhook_secret)
     except stripe.error.SignatureVerificationError:
         raise ValueError("Invalid Stripe webhook signature")
 
+    # Signature verified — parse the raw payload as plain dicts. (Stripe's StripeObject
+    # doesn't expose .get() as a dict method in this version, so avoid it entirely.)
+    event = json.loads(payload)
     evt_type = event["type"]
     data = event["data"]["object"]
     print(f"[STRIPE] webhook received: {evt_type}")
