@@ -63,13 +63,15 @@ def get_account_status(user_id: str) -> dict:
 
 
 def set_subscriber(user_id: str, is_subscriber: bool, stripe_customer_id: str | None = None) -> None:
-    payload: dict = {"is_subscriber": is_subscriber}
+    # Upsert so the grant lands even if no users row exists yet (e.g. account predates the signup trigger).
+    payload: dict = {"id": user_id, "is_subscriber": is_subscriber}
     if stripe_customer_id:
         payload["stripe_customer_id"] = stripe_customer_id
     try:
-        _sb().table("users").update(payload).eq("id", user_id).execute()
-    except Exception:
-        pass
+        _sb().table("users").upsert(payload, on_conflict="id").execute()
+        print(f"[AUTH] set_subscriber: {user_id} -> {is_subscriber}")
+    except Exception as e:
+        print(f"[AUTH] set_subscriber failed for {user_id}: {e}")
 
 
 def add_credits(user_id: str, amount: int, stripe_customer_id: str | None = None) -> None:
@@ -78,12 +80,39 @@ def add_credits(user_id: str, amount: int, stripe_customer_id: str | None = None
     try:
         record = get_user_record(user_id)
         current = int((record or {}).get("credits") or 0)
-        payload: dict = {"credits": current + amount}
+        # Upsert so the grant lands even if no users row exists yet.
+        payload: dict = {"id": user_id, "credits": current + amount}
         if stripe_customer_id:
             payload["stripe_customer_id"] = stripe_customer_id
-        _sb().table("users").update(payload).eq("id", user_id).execute()
+        _sb().table("users").upsert(payload, on_conflict="id").execute()
+        print(f"[AUTH] add_credits: {user_id} +{amount} (was {current}, now {current + amount})")
     except Exception as e:
         print(f"[AUTH] add_credits failed for {user_id}: {e}")
+
+
+def grant_from_stripe(
+    event_id: str,
+    user_id: str,
+    kind: str,
+    credits: int = 0,
+    stripe_customer_id: str | None = None,
+) -> None:
+    """
+    Atomic, idempotent entitlement grant via the `grant_from_stripe` Postgres function.
+
+    The DB function dedupes by Stripe event id (a duplicate delivery is a no-op) and applies
+    the grant in the same transaction. We deliberately DO NOT catch errors here: if the grant
+    fails, the exception propagates out of the webhook handler so the endpoint returns 5xx and
+    Stripe retries the delivery — safe because the event-id dedup makes a successful retry a no-op.
+    """
+    _sb().rpc("grant_from_stripe", {
+        "p_event_id": event_id,
+        "p_user_id": user_id,
+        "p_kind": kind,
+        "p_credits": int(credits or 0),
+        "p_customer_id": stripe_customer_id,
+    }).execute()
+    print(f"[AUTH] grant_from_stripe ok: event={event_id} user={user_id} kind={kind} credits={credits}")
 
 
 def consume_research(user_id: str) -> tuple[bool, str]:

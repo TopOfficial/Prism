@@ -1,6 +1,6 @@
 import os
 import stripe
-from services.auth_service import set_subscriber, add_credits, _sb
+from services.auth_service import grant_from_stripe, set_subscriber, _sb
 
 # Credit packs: each maps to its own Stripe one-time price ID + how many credits it grants.
 PACKS = {
@@ -18,7 +18,7 @@ def _get_stripe():
 def create_checkout_session(user_id: str, user_email: str, plan: str, quantity: int = 1) -> str:
     """
     plan:
-      - "subscription"           → recurring $9.99/mo, unlimited research
+      - "subscription"           → recurring $14.99/mo, unlimited research
       - "starter"|"standard"|"pro" → one-time credit pack
       - "credits"                → custom one-time purchase, `quantity` credits at $0.99 each
     """
@@ -83,21 +83,24 @@ def handle_webhook(payload: bytes, sig_header: str | None) -> dict:
 
     evt_type = event["type"]
     data = event["data"]["object"]
+    print(f"[STRIPE] webhook received: {evt_type}")
 
     if evt_type == "checkout.session.completed":
         meta = data.get("metadata") or {}
         user_id = meta.get("user_id")
         kind = meta.get("kind")
         customer_id = data.get("customer")
-        if user_id:
-            if kind == "subscription":
-                set_subscriber(user_id, True, customer_id)
-            elif kind == "credits":
-                try:
-                    credits = int(meta.get("credits") or 0)
-                except (TypeError, ValueError):
-                    credits = 0
-                add_credits(user_id, credits, customer_id)
+        print(f"[STRIPE] checkout.session.completed user_id={user_id} kind={kind} credits={meta.get('credits')}")
+        if not user_id or kind not in ("subscription", "credits"):
+            # Can't be fixed by retrying — log and acknowledge so Stripe stops resending.
+            print(f"[STRIPE] WARNING: nothing to grant (user_id={user_id}, kind={kind})")
+        else:
+            try:
+                credits = int(meta.get("credits") or 0)
+            except (TypeError, ValueError):
+                credits = 0
+            # Atomic + idempotent. Raises on failure → 5xx → Stripe retries safely.
+            grant_from_stripe(event["id"], user_id, kind, credits, customer_id)
 
     elif evt_type in ("customer.subscription.deleted", "customer.subscription.paused"):
         customer_id = data.get("customer")

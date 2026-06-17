@@ -59,6 +59,56 @@ create policy "history: read own" on public.research_history
 create policy "service role: all" on public.research_history
   using (true) with check (true);
 
+-- 3b. Stripe webhook idempotency + atomic entitlement grant
+--     Stripe delivers webhooks at-least-once and retries on 5xx, so the grant must be
+--     exactly-once and atomic. We dedupe by Stripe event id and apply the grant in one tx.
+create table if not exists public.stripe_events (
+  id         text primary key,          -- Stripe event id (evt_...)
+  created_at timestamptz not null default now()
+);
+
+alter table public.stripe_events enable row level security;
+create policy "service role: all" on public.stripe_events
+  using (true) with check (true);
+
+create or replace function public.grant_from_stripe(
+  p_event_id    text,
+  p_user_id     uuid,
+  p_kind        text,
+  p_credits     integer default 0,
+  p_customer_id text default null
+)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_inserted integer;
+begin
+  -- Claim the event. If it already exists, this is a duplicate/retry → no-op.
+  insert into public.stripe_events (id) values (p_event_id)
+  on conflict (id) do nothing;
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then
+    return;
+  end if;
+
+  if p_kind = 'subscription' then
+    insert into public.users (id, is_subscriber, stripe_customer_id)
+    values (p_user_id, true, p_customer_id)
+    on conflict (id) do update
+      set is_subscriber      = true,
+          stripe_customer_id = coalesce(excluded.stripe_customer_id, public.users.stripe_customer_id);
+  elsif p_kind = 'credits' then
+    insert into public.users (id, credits, stripe_customer_id)
+    values (p_user_id, p_credits, p_customer_id)
+    on conflict (id) do update
+      set credits            = public.users.credits + p_credits,   -- atomic increment, no read-modify-write
+          stripe_customer_id = coalesce(excluded.stripe_customer_id, public.users.stripe_customer_id);
+  end if;
+end;
+$$;
+
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4. MIGRATION — run ONLY if upgrading an existing project from the old schema
@@ -73,6 +123,7 @@ create policy "service role: all" on public.research_history
 -- alter table public.users drop column if exists searches_reset_at;
 -- drop table if exists public.research_cache;
 -- (then run section 3 above to create research_history)
+-- (and run section 3b above to create stripe_events + the grant_from_stripe function)
 
 -- 5. Make yourself admin (unlimited, no credit charge). Find your UID in
 --    Supabase → Authentication → Users → click your email → User UID.

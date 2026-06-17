@@ -24,6 +24,14 @@ function loadCachedAccount() {
   }
 }
 
+function EmptyTab({ text }) {
+  return (
+    <div className="glass-card p-10 text-center animate-fade-in-up" style={{ color: "#3D5068", fontSize: 14 }}>
+      {text}
+    </div>
+  );
+}
+
 export default function App() {
   const [ticker, setTicker] = useState("");
   const [data, setData] = useState(null);
@@ -95,12 +103,19 @@ export default function App() {
   }, []);
 
   // Returning from a successful Stripe checkout: refresh entitlements and clean the URL.
+  // The webhook that grants credits may land a beat after the redirect, so refetch twice.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("purchased") === "1") {
-      supabase.auth.getSession().then(({ data: { session } }) => fetchAccount(session));
-      setShowPricing(false);
-      window.history.replaceState({}, "", window.location.pathname);
-    }
+    if (new URLSearchParams(window.location.search).get("purchased") !== "1") return;
+    const refresh = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      fetchAccount(session);
+      fetchHistory(session);
+    };
+    refresh();
+    const t = setTimeout(refresh, 3000);
+    setShowPricing(false);
+    window.history.replaceState({}, "", window.location.pathname);
+    return () => clearTimeout(t);
   }, []);
 
   async function _authHeaders() {
@@ -108,7 +123,7 @@ export default function App() {
     return session ? { Authorization: `Bearer ${session.access_token}` } : {};
   }
 
-  async function handleSearch(t) {
+  async function handleSearch(t, { tab = "brief" } = {}) {
     setTicker(t);
     localStorage.setItem("prism_last_ticker", t);
     setLoading(true);
@@ -123,7 +138,7 @@ export default function App() {
       }
       const json = await res.json();
       setData(json);
-      setActiveTab("brief");
+      setActiveTab(tab);
     } catch (e) {
       setError(e.message || "Unknown error");
     } finally {
@@ -131,10 +146,9 @@ export default function App() {
     }
   }
 
-  // Open a ticker from the history sidebar → load its brief, jump to the research tab.
+  // Open a ticker from the History tab → load its brief and land on the Deep Research report.
   function openFromHistory(t) {
-    setActiveTab("research");
-    handleSearch(t);
+    handleSearch(t, { tab: "research" });
   }
 
   // Called by ResearchPanel after a fresh run so credits + history stay in sync.
@@ -147,6 +161,7 @@ export default function App() {
   async function handleSignOut() {
     setAccountCached(EMPTY_ACCOUNT);
     setHistory([]);
+    setActiveTab("brief");
     await supabase.auth.signOut();
   }
 
@@ -270,50 +285,49 @@ export default function App() {
           <SearchBar onSubmit={handleSearch} loading={loading} initialValue={ticker} />
         </div>
 
-        {/* Body: history rail + results */}
-        <div className="mt-6 flex flex-col lg:flex-row gap-4">
-          {user && (
-            <div className="lg:w-[230px] shrink-0">
-              <HistorySidebar items={history} activeTicker={data?.ticker} onSelect={openFromHistory} />
-            </div>
-          )}
+        {/* Body */}
+        <div className="mt-6 pb-12">
+          {loading && <LoadingState ticker={ticker} />}
+          {error && <ErrorState ticker={ticker} message={error} />}
 
-          <main className="flex-1 min-w-0">
-            {loading && <LoadingState ticker={ticker} />}
-            {error && <ErrorState ticker={ticker} message={error} />}
-            {data && (
-              <div className="flex flex-col gap-4 pb-12">
-                {/* Tab nav */}
-                <div className="flex items-center gap-1" style={{ borderBottom: "1px solid rgba(168,85,247,0.15)", paddingBottom: 0 }}>
-                  {[{ id: "brief", label: "Brief" }, { id: "research", label: "Deep Research" }].map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                      className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
-                      style={{
-                        background: "none", border: "none",
-                        borderBottom: activeTab === tab.id ? "2px solid #A855F7" : "2px solid transparent",
-                        color: activeTab === tab.id ? "#A855F7" : "#3D5068",
-                        fontFamily: "'Space Grotesk', sans-serif",
-                        marginBottom: -1,
-                      }}>
-                      {tab.label}
-                    </button>
-                  ))}
+          {!loading && !error && (data || user) && (
+            <div className="flex flex-col gap-4">
+              {/* Tab nav */}
+              <div className="flex items-center gap-1" style={{ borderBottom: "1px solid rgba(168,85,247,0.15)", paddingBottom: 0 }}>
+                {[
+                  { id: "brief", label: "Brief" },
+                  { id: "research", label: "Deep Research" },
+                  ...(user ? [{ id: "history", label: "History" }] : []),
+                ].map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
+                    style={{
+                      background: "none", border: "none",
+                      borderBottom: activeTab === tab.id ? "2px solid #A855F7" : "2px solid transparent",
+                      color: activeTab === tab.id ? "#A855F7" : "#3D5068",
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      marginBottom: -1,
+                    }}>
+                    {tab.label}
+                  </button>
+                ))}
 
-                  {user && (
-                    <span className="ml-auto text-xs px-2" style={{ color: "#4E6278", fontFamily: "'Space Grotesk', sans-serif" }}>
-                      {account.is_admin ? "Unlimited"
-                        : account.is_subscriber ? "Pro · Unlimited"
-                        : <>
-                            <span style={{ color: "#A855F7", fontWeight: 600 }}>{account.credits}</span>
-                            {` credit${account.credits === 1 ? "" : "s"}`}
-                            {account.free_research_available && " · 1 free this week"}
-                          </>}
-                    </span>
-                  )}
-                </div>
+                {user && (
+                  <span className="ml-auto text-xs px-2" style={{ color: "#4E6278", fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {account.is_admin ? "Unlimited"
+                      : account.is_subscriber ? "Pro · Unlimited"
+                      : <>
+                          <span style={{ color: "#A855F7", fontWeight: 600 }}>{account.credits}</span>
+                          {` credit${account.credits === 1 ? "" : "s"}`}
+                          {account.free_research_available && " · 1 free this week"}
+                        </>}
+                  </span>
+                )}
+              </div>
 
-                {/* Tab: Brief */}
-                <div style={{ display: activeTab === "brief" ? "block" : "none" }}>
+              {/* Tab: Brief */}
+              <div style={{ display: activeTab === "brief" ? "block" : "none" }}>
+                {data ? (
                   <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                     <div className="flex-1 min-w-0">
                       <BriefCard data={data} />
@@ -322,10 +336,14 @@ export default function App() {
                       <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} />
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <EmptyTab text="Search a ticker above to see its brief." />
+                )}
+              </div>
 
-                {/* Tab: Deep Research — always mounted so report state survives tab switches */}
-                <div style={{ display: activeTab === "research" ? "block" : "none" }}>
+              {/* Tab: Deep Research */}
+              <div style={{ display: activeTab === "research" ? "block" : "none" }}>
+                {data ? (
                   <ResearchPanel
                     ticker={data.ticker}
                     user={user}
@@ -336,10 +354,19 @@ export default function App() {
                     onUpgrade={handleUpgrade}
                     onRunComplete={refreshAfterRun}
                   />
-                </div>
+                ) : (
+                  <EmptyTab text="Search a ticker above, then run Deep Research." />
+                )}
               </div>
-            )}
-          </main>
+
+              {/* Tab: History */}
+              {user && (
+                <div style={{ display: activeTab === "history" ? "block" : "none" }}>
+                  <HistorySidebar items={history} activeTicker={data?.ticker} onSelect={openFromHistory} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
