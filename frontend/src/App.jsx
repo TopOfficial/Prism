@@ -8,8 +8,21 @@ import ErrorState from "./components/ErrorState";
 import HelpModal from "./components/HelpModal";
 import AuthModal from "./components/AuthModal";
 import ResearchPanel from "./components/ResearchPanel";
+import PricingModal from "./components/PricingModal";
+import HistorySidebar from "./components/HistorySidebar";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+const EMPTY_ACCOUNT = { is_admin: false, is_subscriber: false, credits: 0, free_research_available: false };
+
+function loadCachedAccount() {
+  try {
+    const raw = localStorage.getItem("prism_account");
+    return raw ? { ...EMPTY_ACCOUNT, ...JSON.parse(raw) } : EMPTY_ACCOUNT;
+  } catch {
+    return EMPTY_ACCOUNT;
+  }
+}
 
 export default function App() {
   const [ticker, setTicker] = useState("");
@@ -18,25 +31,46 @@ export default function App() {
   const [error, setError] = useState(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const [showPricing, setShowPricing] = useState(false);
   const [user, setUser] = useState(null);
-  const [isPro, setIsPro] = useState(() => localStorage.getItem("prism_is_pro") === "true");
+  const [account, setAccount] = useState(loadCachedAccount);
+  const [history, setHistory] = useState([]);
   const [activeTab, setActiveTab] = useState("brief");
 
-  function _setIsPro(val) {
-    setIsPro(val);
-    localStorage.setItem("prism_is_pro", val ? "true" : "false");
+  // A user can run a fresh analysis if they're admin, subscribed, have a free weekly run, or hold credits.
+  const canRunResearch =
+    account.is_admin || account.is_subscriber || account.free_research_available || account.credits > 0;
+
+  function setAccountCached(acct) {
+    const next = { ...EMPTY_ACCOUNT, ...acct };
+    setAccount(next);
+    localStorage.setItem("prism_account", JSON.stringify(next));
   }
 
-  async function fetchProStatus(session) {
-    if (!session) { _setIsPro(false); return; }
+  async function fetchAccount(session) {
+    if (!session) { setAccountCached(EMPTY_ACCOUNT); return; }
     try {
       const res = await fetch(`${API}/me`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      const body = await res.json();
-      _setIsPro(!!body.is_pro);
+      if (res.ok) setAccountCached(await res.json());
     } catch {
       // keep cached value on network error
+    }
+  }
+
+  async function fetchHistory(session) {
+    if (!session) { setHistory([]); return; }
+    try {
+      const res = await fetch(`${API}/history`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        const body = await res.json();
+        setHistory(body.items || []);
+      }
+    } catch {
+      setHistory([]);
     }
   }
 
@@ -48,14 +82,25 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      fetchProStatus(session);
+      fetchAccount(session);
+      fetchHistory(session);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) setShowAuth(false);
-      fetchProStatus(session);
+      fetchAccount(session);
+      fetchHistory(session);
     });
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Returning from a successful Stripe checkout: refresh entitlements and clean the URL.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("purchased") === "1") {
+      supabase.auth.getSession().then(({ data: { session } }) => fetchAccount(session));
+      setShowPricing(false);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   async function _authHeaders() {
@@ -74,16 +119,11 @@ export default function App() {
       const res = await fetch(`${API}/brief/${t}`, { headers });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        if (body.detail === "daily_limit_reached") {
-          setError("daily_limit_reached");
-          return;
-        }
         throw new Error(body.detail || `HTTP ${res.status}`);
       }
       const json = await res.json();
       setData(json);
       setActiveTab("brief");
-      if (json.is_pro !== undefined) _setIsPro(!!json.is_pro);
     } catch (e) {
       setError(e.message || "Unknown error");
     } finally {
@@ -91,26 +131,47 @@ export default function App() {
     }
   }
 
+  // Open a ticker from the history sidebar → load its brief, jump to the research tab.
+  function openFromHistory(t) {
+    setActiveTab("research");
+    handleSearch(t);
+  }
+
+  // Called by ResearchPanel after a fresh run so credits + history stay in sync.
+  async function refreshAfterRun() {
+    const { data: { session } } = await supabase.auth.getSession();
+    fetchAccount(session);
+    fetchHistory(session);
+  }
+
   async function handleSignOut() {
-    _setIsPro(false);
+    setAccountCached(EMPTY_ACCOUNT);
+    setHistory([]);
     await supabase.auth.signOut();
   }
 
-  async function handleUpgrade(plan = "monthly") {
+  function handleUpgrade() {
+    if (!user) { setShowAuth(true); return; }
+    setShowPricing(true);
+  }
+
+  async function startCheckout(plan, quantity = 1) {
     if (!user) { setShowAuth(true); return; }
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${API}/create-checkout-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, quantity }),
       });
       const body = await res.json();
       if (body.checkout_url) window.location.href = body.checkout_url;
     } catch (e) {
-      console.error("Upgrade error:", e);
+      console.error("Checkout error:", e);
     }
   }
+
+  const isPaid = account.is_admin || account.is_subscriber;
 
   return (
     <div className="relative min-h-screen overflow-x-hidden" style={{ background: "#070B14" }}>
@@ -161,13 +222,13 @@ export default function App() {
           <div className="flex items-center gap-2 mt-1">
             {user ? (
               <>
-                {!isPro && (
-                  <button onClick={() => handleUpgrade("monthly")}
+                {!isPaid && (
+                  <button onClick={handleUpgrade}
                     className="text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-all duration-200"
                     style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.4)", color: "#A855F7" }}
                     onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.28)"}
                     onMouseLeave={e => e.currentTarget.style.background = "rgba(168,85,247,0.18)"}>
-                    Upgrade to Pro
+                    {account.credits > 0 ? `${account.credits} credits` : "Upgrade"}
                   </button>
                 )}
                 <button onClick={handleSignOut}
@@ -175,7 +236,10 @@ export default function App() {
                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#4E6278" }}
                   onMouseEnter={e => e.currentTarget.style.color = "#64748B"}
                   onMouseLeave={e => e.currentTarget.style.color = "#4E6278"}>
-                  {user.email?.split("@")[0]}{isPro && <span style={{ color: "#A855F7", marginLeft: 6 }}>Pro</span>}  ·  Sign Out
+                  {user.email?.split("@")[0]}
+                  {account.is_subscriber && <span style={{ color: "#A855F7", marginLeft: 6 }}>Pro</span>}
+                  {account.is_admin && <span style={{ color: "#FCD34D", marginLeft: 6 }}>Admin</span>}
+                  {"  ·  Sign Out"}
                 </button>
               </>
             ) : (
@@ -206,72 +270,69 @@ export default function App() {
           <SearchBar onSubmit={handleSearch} loading={loading} initialValue={ticker} />
         </div>
 
-        {/* Daily limit gate */}
-        {error === "daily_limit_reached" && (
-          <div className="mt-6 rounded-2xl p-6 text-center animate-fade-in"
-            style={{ background: "rgba(168,85,247,0.07)", border: "1px solid rgba(168,85,247,0.25)" }}>
-            <p className="text-sm font-semibold mb-1" style={{ color: "#A855F7" }}>Daily limit reached</p>
-            <p className="text-sm mb-4" style={{ color: "#64748B" }}>Free accounts get 5 searches/day.</p>
-            <button onClick={() => handleUpgrade("monthly")}
-              className="text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer transition-all"
-              style={{ background: "#A855F7", border: "none", color: "#fff" }}>
-              Upgrade to Pro — ฿199/mo
-            </button>
-          </div>
-        )}
-
-        {/* Results */}
-        <main className="mt-6">
-          {loading && <LoadingState ticker={ticker} />}
-          {error && error !== "daily_limit_reached" && <ErrorState ticker={ticker} message={error} />}
-          {data && (
-            <div className="flex flex-col gap-4 pb-12">
-              {/* Tab nav */}
-              <div className="flex items-center gap-1" style={{ borderBottom: "1px solid rgba(168,85,247,0.15)", paddingBottom: 0 }}>
-                {[{ id: "brief", label: "Brief" }, { id: "research", label: "Deep Research" }].map(tab => (
-                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                    className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
-                    style={{
-                      background: "none", border: "none",
-                      borderBottom: activeTab === tab.id ? "2px solid #A855F7" : "2px solid transparent",
-                      color: activeTab === tab.id ? "#A855F7" : "#3D5068",
-                      fontFamily: "'Space Grotesk', sans-serif",
-                      marginBottom: -1,
-                    }}>
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Tab: Brief */}
-              <div style={{ display: activeTab === "brief" ? "block" : "none" }}>
-                <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <BriefCard data={data} />
-                  </div>
-                  <div className="lg:w-[400px] xl:w-[440px] shrink-0 lg:sticky lg:top-6">
-                    <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Tab: Deep Research — always mounted so report state survives tab switches */}
-              <div style={{ display: activeTab === "research" ? "block" : "none" }}>
-                <ResearchPanel
-                  ticker={data.ticker}
-                  user={user}
-                  isPro={isPro}
-                  apiBase={API}
-                  onUpgrade={handleUpgrade}
-                />
-              </div>
+        {/* Body: history rail + results */}
+        <div className="mt-6 flex flex-col lg:flex-row gap-4">
+          {user && history.length > 0 && (
+            <div className="lg:w-[230px] shrink-0">
+              <HistorySidebar items={history} activeTicker={data?.ticker} onSelect={openFromHistory} />
             </div>
           )}
-        </main>
+
+          <main className="flex-1 min-w-0">
+            {loading && <LoadingState ticker={ticker} />}
+            {error && <ErrorState ticker={ticker} message={error} />}
+            {data && (
+              <div className="flex flex-col gap-4 pb-12">
+                {/* Tab nav */}
+                <div className="flex items-center gap-1" style={{ borderBottom: "1px solid rgba(168,85,247,0.15)", paddingBottom: 0 }}>
+                  {[{ id: "brief", label: "Brief" }, { id: "research", label: "Deep Research" }].map(tab => (
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                      className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
+                      style={{
+                        background: "none", border: "none",
+                        borderBottom: activeTab === tab.id ? "2px solid #A855F7" : "2px solid transparent",
+                        color: activeTab === tab.id ? "#A855F7" : "#3D5068",
+                        fontFamily: "'Space Grotesk', sans-serif",
+                        marginBottom: -1,
+                      }}>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Tab: Brief */}
+                <div style={{ display: activeTab === "brief" ? "block" : "none" }}>
+                  <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <BriefCard data={data} />
+                    </div>
+                    <div className="lg:w-[400px] xl:w-[440px] shrink-0 lg:sticky lg:top-6">
+                      <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tab: Deep Research — always mounted so report state survives tab switches */}
+                <div style={{ display: activeTab === "research" ? "block" : "none" }}>
+                  <ResearchPanel
+                    ticker={data.ticker}
+                    user={user}
+                    account={account}
+                    canRun={canRunResearch}
+                    apiBase={API}
+                    onUpgrade={handleUpgrade}
+                    onRunComplete={refreshAfterRun}
+                  />
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
       </div>
 
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      {showPricing && <PricingModal account={account} onClose={() => setShowPricing(false)} onCheckout={startCheckout} />}
     </div>
   );
 }

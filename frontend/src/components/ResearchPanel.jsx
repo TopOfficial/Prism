@@ -75,21 +75,48 @@ function PhaseIndicator({ active }) {
   );
 }
 
-export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade }) {
+function daysSince(iso) {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms)) return null;
+  return Math.floor(ms / 86400000);
+}
+
+export default function ResearchPanel({ ticker, user, account, canRun, apiBase, onUpgrade, onRunComplete }) {
   const [status, setStatus] = useState("idle"); // idle | locked | loading | done | error
   const [report, setReport] = useState(null);
+  const [createdAt, setCreatedAt] = useState(null);
   const [errMsg, setErrMsg] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [showExample, setShowExample] = useState(false);
   const timerRef = useRef(null);
 
+  // On ticker change, look for a saved report (free to view); fall back to idle.
   useEffect(() => {
+    let cancelled = false;
     setStatus("idle");
     setReport(null);
+    setCreatedAt(null);
     setErrMsg(null);
     setElapsed(0);
     setShowExample(false);
-  }, [ticker]);
+    if (!user) return;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || cancelled) return;
+      try {
+        const res = await fetch(`${apiBase}/history/${ticker}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (cancelled || !res.ok) return;
+        const d = await res.json();
+        setReport(d.report);
+        setCreatedAt(d.created_at);
+        setStatus("done");
+      } catch { /* no saved report */ }
+    })();
+    return () => { cancelled = true; };
+  }, [ticker, user, apiBase]);
 
   useEffect(() => {
     if (status === "loading") {
@@ -102,7 +129,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
   }, [status]);
 
   async function handleRun() {
-    if (!isPro) { setStatus("locked"); return; }
+    if (!user || !canRun) { setStatus("locked"); return; }
 
     setStatus("loading");
     setReport(null);
@@ -111,22 +138,36 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${apiBase}/research/${ticker}`, {
+        method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        if (body.detail === "pro_required") { setStatus("locked"); return; }
+        if (res.status === 402 || res.status === 401 || body.detail === "no_credits") {
+          setStatus("locked");
+          return;
+        }
         throw new Error(body.detail || `HTTP ${res.status}`);
       }
       const data = await res.json();
       setReport(data.report);
+      setCreatedAt(new Date().toISOString());
       setStatus("done");
+      if (onRunComplete) onRunComplete();
     } catch (e) {
       setErrMsg(e.message || "Analysis failed");
       setStatus("error");
     }
   }
 
+  const runLabel =
+    account?.free_research_available ? "Run Deep Analysis · free this week" :
+    (account?.is_subscriber || account?.is_admin) ? "Run Deep Analysis" :
+    account?.credits > 0 ? "Run Deep Analysis · 1 credit" :
+    "Run Deep Analysis";
+
+  const ageDays = daysSince(createdAt);
+  const isStale = ageDays != null && ageDays >= 7;
   const phaseGuess = elapsed < 15 ? 0 : elapsed < 30 ? 1 : 2;
 
   return (
@@ -188,12 +229,12 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
             <div className="mt-6 pt-5 flex items-center justify-between"
               style={{ borderTop: "1px solid rgba(168,85,247,0.15)" }}>
               <p className="text-sm" style={{ color: "#64748B" }}>
-                Run this analysis on any ticker with a Pro account.
+                Run this analysis on any ticker — 1 free every week.
               </p>
-              <button onClick={() => onUpgrade(user ? "monthly" : undefined)}
+              <button onClick={onUpgrade}
                 className="text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer shrink-0 ml-4"
                 style={{ background: "#A855F7", border: "none", color: "#fff" }}>
-                {user ? "Upgrade to Pro — ฿199/mo" : "Sign In to Unlock"}
+                {user ? "Get Credits" : "Sign In to Unlock"}
               </button>
             </div>
           </div>
@@ -211,10 +252,10 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
                 style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.4)", color: "#A855F7" }}
                 onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.28)"}
                 onMouseLeave={e => e.currentTarget.style.background = "rgba(168,85,247,0.18)"}>
-                Run Deep Analysis
+                {runLabel}
               </button>
             </div>
-            {!isPro && (
+            {!canRun && (
               <div className="mt-2">
                 <button onClick={() => setShowExample(true)}
                   style={{ fontSize: 12, color: "#4E6278", background: "none", border: "none", cursor: "pointer", padding: 0 }}
@@ -231,17 +272,17 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
         {!showExample && status === "locked" && (
           <div className="text-center py-6 animate-fade-in">
             <div style={{ fontSize: 28, marginBottom: 10 }}>🔒</div>
-            <p className="text-sm font-semibold mb-1" style={{ color: "#E2E8F0" }}>Pro feature</p>
+            <p className="text-sm font-semibold mb-1" style={{ color: "#E2E8F0" }}>Out of credits</p>
             <p className="text-sm mb-5" style={{ color: "#64748B" }}>
               {!user
-                ? "Sign in and upgrade to Pro to run 3-phase institutional analysis."
-                : "Upgrade to Pro to unlock unlimited Deep Research reports."}
+                ? "Sign in to run 3-phase institutional analysis — 1 free every week."
+                : "You've used your free weekly analysis. Subscribe or buy credits to run more."}
             </p>
             <div className="flex items-center justify-center gap-3">
-              <button onClick={() => onUpgrade(user ? "monthly" : undefined)}
+              <button onClick={onUpgrade}
                 className="text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer"
                 style={{ background: "#A855F7", border: "none", color: "#fff" }}>
-                {user ? "Upgrade to Pro — ฿199/mo" : "Sign In to Unlock"}
+                {user ? "Subscribe or Buy Credits" : "Sign In to Unlock"}
               </button>
               <button onClick={() => setShowExample(true)}
                 style={{ fontSize: 12, color: "#4E6278", background: "none", border: "none", cursor: "pointer" }}
@@ -281,6 +322,31 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
         {/* DONE — report */}
         {!showExample && status === "done" && report && (
           <div style={{ maxWidth: "100%" }}>
+            {/* Meta bar: generated date + re-analyze */}
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <span style={{ fontSize: 12, color: "#3D5068" }}>
+                {createdAt && `Generated ${new Date(createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+              </span>
+              <button onClick={handleRun}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition-all"
+                style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.3)", color: "#A855F7" }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.22)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(168,85,247,0.12)"}>
+                ↻ Re-analyze{account?.free_research_available ? " · free this week" : (account?.is_subscriber || account?.is_admin) ? "" : account?.credits > 0 ? " · 1 credit" : ""}
+              </button>
+            </div>
+
+            {/* Stale warning */}
+            {isStale && (
+              <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-xl"
+                style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)" }}>
+                <span style={{ fontSize: 13 }}>⚠️</span>
+                <span style={{ fontSize: 12, color: "#FCD34D" }}>
+                  This report is {ageDays} days old. Market conditions may have changed — re-analyze for the latest.
+                </span>
+              </div>
+            )}
+
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
               {report}
             </ReactMarkdown>

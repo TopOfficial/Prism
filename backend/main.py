@@ -15,7 +15,10 @@ from services.news_service import get_news
 from services.verdict_service import compute_verdict
 from services.scoring import compute_quality_scores
 from services.research_service import run_stock_analysis
-from services.auth_service import verify_jwt, get_user_record, check_and_increment_search
+from services.auth_service import (
+    verify_jwt, get_account_status, consume_research,
+    save_history, list_history, get_history_report,
+)
 from services.stripe_service import create_checkout_session, handle_webhook
 
 security = HTTPBearer(auto_error=False)
@@ -54,9 +57,8 @@ def search(q: str = ""):
 @app.get("/me")
 def get_me(user=Depends(_get_user)):
     if not user:
-        return {"is_pro": False}
-    record = get_user_record(user.id)
-    return {"is_pro": bool(record and record.get("is_pro"))}
+        return {"is_admin": False, "is_subscriber": False, "credits": 0, "free_research_available": False}
+    return get_account_status(user.id)
 
 
 @app.post("/feedback")
@@ -77,9 +79,10 @@ async def checkout_session(request: Request, user=Depends(_get_user)):
     if not user:
         raise HTTPException(status_code=401, detail="not_authenticated")
     body = await request.json()
-    plan = str(body.get("plan", "monthly"))
+    plan = str(body.get("plan", "subscription"))
+    quantity = int(body.get("quantity", 1) or 1)
     try:
-        url = create_checkout_session(user.id, user.email, plan)
+        url = create_checkout_session(user.id, user.email, plan, quantity)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -98,15 +101,35 @@ async def stripe_webhook(request: Request):
     return result
 
 
-@app.get("/research/{ticker}")
-def get_research(ticker: str, request: Request, user=Depends(_get_user)):
-    """Pro-only: 3-phase institutional equity analysis via Claude."""
+@app.get("/history")
+def get_history_list(user=Depends(_get_user)):
+    """Return the signed-in user's saved Deep Research tickers (newest first)."""
     if user is None:
         raise HTTPException(status_code=401, detail="not_authenticated")
+    return {"items": list_history(user.id)}
 
-    record = get_user_record(user.id)
-    if not record or not record.get("is_pro"):
-        raise HTTPException(status_code=403, detail="pro_required")
+
+@app.get("/history/{ticker}")
+def get_history_one(ticker: str, user=Depends(_get_user)):
+    """Return a previously generated report for this user + ticker. Free, no credit charged."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    row = get_history_report(user.id, ticker.upper().strip())
+    if not row:
+        raise HTTPException(status_code=404, detail="no_history")
+    return {
+        "ticker": row["ticker"],
+        "company_name": row.get("company_name"),
+        "report": row["report"],
+        "created_at": row.get("created_at"),
+    }
+
+
+@app.post("/research/{ticker}")
+def run_research(ticker: str, request: Request, user=Depends(_get_user)):
+    """Run a fresh 3-phase analysis. Charges a credit (or weekly-free / unlimited) and saves to history."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
 
     ticker = ticker.upper().strip()
 
@@ -127,6 +150,11 @@ def get_research(ticker: str, request: Request, user=Depends(_get_user)):
 
     if stock["overview"].get("revenue_ttm") is None and company_name is None:
         raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found")
+
+    # Charge only after we know the ticker is valid
+    allowed, charge_type = consume_research(user.id)
+    if not allowed:
+        raise HTTPException(status_code=402, detail="no_credits")
 
     valuation_raw = stock.get("valuation_raw", {})
     valuation = {
@@ -170,19 +198,22 @@ def get_research(ticker: str, request: Request, user=Depends(_get_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
-    return {"ticker": ticker, "report": report}
+    save_history(user.id, ticker, company_name, report)
+    status = get_account_status(user.id)
+    return {
+        "ticker": ticker,
+        "company_name": company_name,
+        "report": report,
+        "charge_type": charge_type,
+        "account": status,
+    }
 
 
 @app.get("/brief/{ticker}")
 @limiter.limit("10/hour")
 def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
+    # Briefs are free and unlimited; the IP rate limiter above guards against abuse.
     ticker = ticker.upper().strip()
-
-    # Search counter for logged-in free users
-    if user:
-        allowed, reason = check_and_increment_search(user.id)
-        if not allowed:
-            raise HTTPException(status_code=429, detail=reason)
 
     stock = get_stock_data(ticker)
 
@@ -274,5 +305,4 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         "institutional": stock["institutional"],
         "verdict": verdict,
         "quality_scores": quality_scores,
-        "is_pro": bool(user and get_user_record(user.id) and get_user_record(user.id).get("is_pro")),
     }

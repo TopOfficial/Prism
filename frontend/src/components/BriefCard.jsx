@@ -220,21 +220,19 @@ export default function BriefCard({ data }) {
                 <table className="w-full text-xs min-w-[380px]">
                   <thead>
                     <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                      {["Date", "Name", "Type", "Shares"].map(h => (
+                      {["Date", "Name", "Shares"].map(h => (
                         <th key={h} className="text-left py-2 pr-4 font-normal" style={{ color: "#3D5068" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {data.institutional.last_5_insider_transactions.map((tx, i) => {
-                      const isBuy = tx.transaction_type?.toLowerCase().match(/purchase|buy|acqui/);
                       return (
                         <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
                           onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.04)"}
                           onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                           <td className="py-2 pr-4" style={{ color: "#3D5068", fontFamily: "'Fira Code', monospace" }}>{tx.date || "—"}</td>
                           <td className="py-2 pr-4 max-w-[120px] truncate" style={{ color: "#64748B" }}>{tx.name || "—"}</td>
-                          <td className="py-2 pr-4" style={{ color: isBuy ? "#34D399" : "#F87171" }}>{tx.transaction_type || "—"}</td>
                           <td className="py-2" style={{ color: "#94A3B8", fontFamily: "'Fira Code', monospace" }}>
                             {tx.shares == null ? "—" : new Intl.NumberFormat("en-US", { notation: "compact" }).format(tx.shares)}
                           </td>

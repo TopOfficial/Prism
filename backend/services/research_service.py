@@ -1,35 +1,5 @@
 import os
-from datetime import datetime, timezone, timedelta
 import anthropic
-
-_CACHE_TTL_HOURS = 24
-
-
-def _get_cached_report(ticker: str) -> str | None:
-    try:
-        from services.auth_service import _sb
-        res = _sb().table("research_cache").select("report, cached_at").eq("ticker", ticker).single().execute()
-        row = res.data
-        if not row:
-            return None
-        cached_at = datetime.fromisoformat(row["cached_at"].replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) - cached_at < timedelta(hours=_CACHE_TTL_HOURS):
-            return row["report"]
-        return None
-    except Exception:
-        return None
-
-
-def _set_cached_report(ticker: str, report: str) -> None:
-    try:
-        from services.auth_service import _sb
-        _sb().table("research_cache").upsert({
-            "ticker": ticker,
-            "report": report,
-            "cached_at": datetime.now(timezone.utc).isoformat(),
-        }).execute()
-    except Exception:
-        pass
 
 _SYSTEM_PROMPT = """# Stock Analyst Skill
 
@@ -294,11 +264,7 @@ def _build_context(ticker: str, data: dict) -> str:
 
 
 def run_stock_analysis(ticker: str, prism_data: dict) -> str:
-    """Run 3-phase institutional equity analysis using the stock-analyst skill framework."""
-    cached = _get_cached_report(ticker)
-    if cached:
-        return cached
-
+    """Run a fresh 3-phase institutional equity analysis using the stock-analyst framework."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY is not set")
@@ -326,5 +292,4 @@ def run_stock_analysis(ticker: str, prism_data: dict) -> str:
     report = "".join(
         block.text for block in response.content if hasattr(block, "text")
     )
-    _set_cached_report(ticker, report)
     return report
