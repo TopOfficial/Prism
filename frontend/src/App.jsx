@@ -36,6 +36,11 @@ export default function App() {
   }
 
   useEffect(() => {
+    const saved = localStorage.getItem("prism_last_ticker");
+    if (saved) handleSearch(saved);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       fetchProStatus(session);
@@ -55,6 +60,7 @@ export default function App() {
 
   async function handleSearch(t) {
     setTicker(t);
+    localStorage.setItem("prism_last_ticker", t);
     setLoading(true);
     setError(null);
     setData(null);

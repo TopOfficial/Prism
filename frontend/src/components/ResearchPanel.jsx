@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { EXAMPLE_REPORT } from "../lib/exampleReport";
 
 // Markdown element styles matching Prism dark theme
 const MD = {
@@ -79,6 +80,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
   const [report, setReport] = useState(null);
   const [errMsg, setErrMsg] = useState(null);
   const [elapsed, setElapsed] = useState(0);
+  const [showExample, setShowExample] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -86,6 +88,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
     setReport(null);
     setErrMsg(null);
     setElapsed(0);
+    setShowExample(false);
   }, [ticker]);
 
   useEffect(() => {
@@ -156,24 +159,76 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
       {/* Body */}
       <div className="px-5 py-4">
 
+        {/* EXAMPLE REPORT — shown when user clicks "View example" */}
+        {showExample && (
+          <div className="animate-fade-in">
+            {/* Amber example banner */}
+            <div className="flex items-center justify-between mb-4 px-3 py-2 rounded-xl"
+              style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)" }}>
+              <div className="flex items-center gap-2">
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#F59E0B", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Example Report
+                </span>
+                <span style={{ fontSize: 12, color: "#64748B" }}>— RKLB (Rocket Lab USA)</span>
+              </div>
+              <button onClick={() => setShowExample(false)}
+                style={{ fontSize: 12, color: "#3D5068", background: "none", border: "none", cursor: "pointer" }}>
+                ← Back
+              </button>
+            </div>
+
+            {/* Rendered example */}
+            <div style={{ maxWidth: "100%" }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
+                {EXAMPLE_REPORT}
+              </ReactMarkdown>
+            </div>
+
+            {/* Bottom upgrade CTA */}
+            <div className="mt-6 pt-5 flex items-center justify-between"
+              style={{ borderTop: "1px solid rgba(168,85,247,0.15)" }}>
+              <p className="text-sm" style={{ color: "#64748B" }}>
+                Run this analysis on any ticker with a Pro account.
+              </p>
+              <button onClick={() => onUpgrade(user ? "monthly" : undefined)}
+                className="text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer shrink-0 ml-4"
+                style={{ background: "#A855F7", border: "none", color: "#fff" }}>
+                {user ? "Upgrade to Pro — ฿199/mo" : "Sign In to Unlock"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* IDLE — show run button for everyone */}
-        {status === "idle" && (
-          <div className="flex items-center justify-between">
-            <p className="text-sm" style={{ color: "#64748B" }}>
-              3-phase institutional analysis of <span style={{ color: "#A855F7" }}>{ticker}</span>. Takes ~1-2 minutes.
-            </p>
-            <button onClick={handleRun}
-              className="text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer transition-all ml-4 shrink-0"
-              style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.4)", color: "#A855F7" }}
-              onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.28)"}
-              onMouseLeave={e => e.currentTarget.style.background = "rgba(168,85,247,0.18)"}>
-              Run Deep Analysis
-            </button>
+        {!showExample && status === "idle" && (
+          <div>
+            <div className="flex items-center justify-between">
+              <p className="text-sm" style={{ color: "#64748B" }}>
+                3-phase institutional analysis of <span style={{ color: "#A855F7" }}>{ticker}</span>. Takes ~1-2 minutes.
+              </p>
+              <button onClick={handleRun}
+                className="text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer transition-all ml-4 shrink-0"
+                style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.4)", color: "#A855F7" }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.28)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(168,85,247,0.18)"}>
+                Run Deep Analysis
+              </button>
+            </div>
+            {!isPro && (
+              <div className="mt-2">
+                <button onClick={() => setShowExample(true)}
+                  style={{ fontSize: 12, color: "#4E6278", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  onMouseEnter={e => e.currentTarget.style.color = "#A855F7"}
+                  onMouseLeave={e => e.currentTarget.style.color = "#4E6278"}>
+                  View example report →
+                </button>
+              </div>
+            )}
           </div>
         )}
 
         {/* LOCKED — non-pro clicked the button */}
-        {status === "locked" && (
+        {!showExample && status === "locked" && (
           <div className="text-center py-6 animate-fade-in">
             <div style={{ fontSize: 28, marginBottom: 10 }}>🔒</div>
             <p className="text-sm font-semibold mb-1" style={{ color: "#E2E8F0" }}>Pro feature</p>
@@ -188,16 +243,18 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
                 style={{ background: "#A855F7", border: "none", color: "#fff" }}>
                 {user ? "Upgrade to Pro — ฿199/mo" : "Sign In to Unlock"}
               </button>
-              <button onClick={() => setStatus("idle")}
-                style={{ fontSize: 12, color: "#3D5068", background: "none", border: "none", cursor: "pointer" }}>
-                Dismiss
+              <button onClick={() => setShowExample(true)}
+                style={{ fontSize: 12, color: "#4E6278", background: "none", border: "none", cursor: "pointer" }}
+                onMouseEnter={e => e.currentTarget.style.color = "#A855F7"}
+                onMouseLeave={e => e.currentTarget.style.color = "#4E6278"}>
+                See what you'd get →
               </button>
             </div>
           </div>
         )}
 
         {/* LOADING */}
-        {status === "loading" && (
+        {!showExample && status === "loading" && (
           <div className="py-6 text-center">
             <div style={{
               width: 32, height: 32, border: "2px solid rgba(168,85,247,0.2)",
@@ -212,7 +269,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
         )}
 
         {/* ERROR */}
-        {status === "error" && (
+        {!showExample && status === "error" && (
           <div className="py-4">
             <p className="text-sm mb-3" style={{ color: "#F87171" }}>{errMsg}</p>
             <button onClick={() => setStatus("idle")} style={{ fontSize: 12, color: "#4E6278", background: "none", border: "none", cursor: "pointer" }}>
@@ -222,7 +279,7 @@ export default function ResearchPanel({ ticker, user, isPro, apiBase, onUpgrade 
         )}
 
         {/* DONE — report */}
-        {status === "done" && report && (
+        {!showExample && status === "done" && report && (
           <div style={{ maxWidth: "100%" }}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
               {report}
