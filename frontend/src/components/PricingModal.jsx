@@ -52,7 +52,7 @@ export default function PricingModal({ account, onClose, onCheckout }) {
               <p className="text-xs mt-1" style={{ color: "#64748B" }}>Unlimited Deep Research. Cancel anytime.</p>
             </div>
             <div className="text-right shrink-0 ml-4">
-              <div style={{ color: "#E2E8F0", fontWeight: 700, fontSize: 18 }}>$9.99<span style={{ fontSize: 12, color: "#64748B" }}>/mo</span></div>
+              <div style={{ color: "#E2E8F0", fontWeight: 700, fontSize: 18 }}>$14.99<span style={{ fontSize: 12, color: "#64748B" }}>/mo</span></div>
               <button onClick={() => onCheckout("subscription")}
                 className="mt-1 text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer"
                 style={{ background: "#A855F7", border: "none", color: "#fff" }}>
