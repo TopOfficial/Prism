@@ -7,8 +7,8 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
 
-export default function SearchBar({ onSubmit, loading }) {
-  const [value, setValue] = useState("");
+export default function SearchBar({ onSubmit, loading, initialValue = "" }) {
+  const [value, setValue] = useState(initialValue);
   const [focused, setFocused] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [highlighted, setHighlighted] = useState(-1);

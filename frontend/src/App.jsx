@@ -19,19 +19,24 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [user, setUser] = useState(null);
-  const [isPro, setIsPro] = useState(false);
+  const [isPro, setIsPro] = useState(() => localStorage.getItem("prism_is_pro") === "true");
   const [activeTab, setActiveTab] = useState("brief");
 
+  function _setIsPro(val) {
+    setIsPro(val);
+    localStorage.setItem("prism_is_pro", val ? "true" : "false");
+  }
+
   async function fetchProStatus(session) {
-    if (!session) { setIsPro(false); return; }
+    if (!session) { _setIsPro(false); return; }
     try {
       const res = await fetch(`${API}/me`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const body = await res.json();
-      setIsPro(!!body.is_pro);
+      _setIsPro(!!body.is_pro);
     } catch {
-      setIsPro(false);
+      // keep cached value on network error
     }
   }
 
@@ -78,7 +83,7 @@ export default function App() {
       const json = await res.json();
       setData(json);
       setActiveTab("brief");
-      if (json.is_pro !== undefined) setIsPro(!!json.is_pro);
+      if (json.is_pro !== undefined) _setIsPro(!!json.is_pro);
     } catch (e) {
       setError(e.message || "Unknown error");
     } finally {
@@ -87,6 +92,7 @@ export default function App() {
   }
 
   async function handleSignOut() {
+    _setIsPro(false);
     await supabase.auth.signOut();
   }
 
@@ -197,7 +203,7 @@ export default function App() {
 
         {/* Search */}
         <div className="animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
-          <SearchBar onSubmit={handleSearch} loading={loading} />
+          <SearchBar onSubmit={handleSearch} loading={loading} initialValue={ticker} />
         </div>
 
         {/* Daily limit gate */}
