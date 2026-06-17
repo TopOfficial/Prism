@@ -272,7 +272,7 @@ export default function App() {
 
         {/* Body: history rail + results */}
         <div className="mt-6 flex flex-col lg:flex-row gap-4">
-          {user && history.length > 0 && (
+          {user && (
             <div className="lg:w-[230px] shrink-0">
               <HistorySidebar items={history} activeTicker={data?.ticker} onSelect={openFromHistory} />
             </div>
@@ -298,6 +298,18 @@ export default function App() {
                       {tab.label}
                     </button>
                   ))}
+
+                  {user && (
+                    <span className="ml-auto text-xs px-2" style={{ color: "#4E6278", fontFamily: "'Space Grotesk', sans-serif" }}>
+                      {account.is_admin ? "Unlimited"
+                        : account.is_subscriber ? "Pro · Unlimited"
+                        : <>
+                            <span style={{ color: "#A855F7", fontWeight: 600 }}>{account.credits}</span>
+                            {` credit${account.credits === 1 ? "" : "s"}`}
+                            {account.free_research_available && " · 1 free this week"}
+                          </>}
+                    </span>
+                  )}
                 </div>
 
                 {/* Tab: Brief */}
@@ -319,6 +331,7 @@ export default function App() {
                     user={user}
                     account={account}
                     canRun={canRunResearch}
+                    hasHistory={history.some(h => h.ticker === data.ticker)}
                     apiBase={API}
                     onUpgrade={handleUpgrade}
                     onRunComplete={refreshAfterRun}

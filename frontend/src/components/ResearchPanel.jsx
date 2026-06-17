@@ -82,7 +82,7 @@ function daysSince(iso) {
   return Math.floor(ms / 86400000);
 }
 
-export default function ResearchPanel({ ticker, user, account, canRun, apiBase, onUpgrade, onRunComplete }) {
+export default function ResearchPanel({ ticker, user, account, canRun, hasHistory, apiBase, onUpgrade, onRunComplete }) {
   const [status, setStatus] = useState("idle"); // idle | locked | loading | done | error
   const [report, setReport] = useState(null);
   const [createdAt, setCreatedAt] = useState(null);
@@ -90,17 +90,21 @@ export default function ResearchPanel({ ticker, user, account, canRun, apiBase, 
   const [elapsed, setElapsed] = useState(0);
   const [showExample, setShowExample] = useState(false);
   const timerRef = useRef(null);
+  const loadedRef = useRef(null); // ticker whose report is currently displayed
 
-  // On ticker change, look for a saved report (free to view); fall back to idle.
+  // Load a saved report only when one exists (avoids a blind 404). Free to view.
   useEffect(() => {
     let cancelled = false;
+    // A report for this exact ticker is already displayed (e.g. just-run) — don't disturb it.
+    if (loadedRef.current === ticker) return;
+
     setStatus("idle");
     setReport(null);
     setCreatedAt(null);
     setErrMsg(null);
     setElapsed(0);
     setShowExample(false);
-    if (!user) return;
+    if (!user || !hasHistory) return;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session || cancelled) return;
@@ -113,10 +117,11 @@ export default function ResearchPanel({ ticker, user, account, canRun, apiBase, 
         setReport(d.report);
         setCreatedAt(d.created_at);
         setStatus("done");
+        loadedRef.current = ticker;
       } catch { /* no saved report */ }
     })();
     return () => { cancelled = true; };
-  }, [ticker, user, apiBase]);
+  }, [ticker, user, hasHistory, apiBase]);
 
   useEffect(() => {
     if (status === "loading") {
@@ -153,6 +158,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, apiBase, 
       setReport(data.report);
       setCreatedAt(new Date().toISOString());
       setStatus("done");
+      loadedRef.current = ticker;
       if (onRunComplete) onRunComplete();
     } catch (e) {
       setErrMsg(e.message || "Analysis failed");

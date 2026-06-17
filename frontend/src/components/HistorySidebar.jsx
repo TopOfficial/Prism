@@ -17,6 +17,12 @@ export default function HistorySidebar({ items, activeTicker, onSelect }) {
         </h3>
       </div>
 
+      {items.length === 0 && (
+        <p className="text-xs leading-relaxed" style={{ color: "#3D5068" }}>
+          No analyses yet — run Deep Research on any ticker and it'll be saved here.
+        </p>
+      )}
+
       <div className="flex flex-col gap-1">
         {items.map((it) => {
           const active = it.ticker === activeTicker;
