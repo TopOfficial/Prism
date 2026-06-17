@@ -194,9 +194,11 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
     try:
         report = run_stock_analysis(ticker, prism_data)
     except ValueError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        print(f"[RESEARCH] {ticker} config error: {e}")
+        raise HTTPException(status_code=503, detail="analysis_unavailable")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+        print(f"[RESEARCH] {ticker} failed: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="analysis_failed")
 
     save_history(user.id, ticker, company_name, report)
     status = get_account_status(user.id)

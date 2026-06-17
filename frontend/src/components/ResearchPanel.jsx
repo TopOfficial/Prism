@@ -312,10 +312,31 @@ export default function ResearchPanel({ ticker, user, account, canRun, apiBase, 
         {/* ERROR */}
         {!showExample && status === "error" && (
           <div className="py-4">
-            <p className="text-sm mb-3" style={{ color: "#F87171" }}>{errMsg}</p>
-            <button onClick={() => setStatus("idle")} style={{ fontSize: 12, color: "#4E6278", background: "none", border: "none", cursor: "pointer" }}>
-              ← Try again
-            </button>
+            <p className="text-sm mb-1" style={{ color: "#F87171" }}>
+              Analysis failed — something went wrong on our end.
+            </p>
+            <p className="text-xs mb-4" style={{ color: "#3D5068" }}>
+              If a credit was deducted, contact us and we'll restore it.
+            </p>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setStatus("idle")}
+                style={{ fontSize: 12, color: "#4E6278", background: "none", border: "none", cursor: "pointer" }}>
+                ← Try again
+              </button>
+              <button onClick={async () => {
+                try {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  await fetch(`${apiBase}/feedback`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+                    body: JSON.stringify({ ticker, verdict: "error", thumbs: "down", comment: errMsg }),
+                  });
+                } catch {}
+              }}
+                style={{ fontSize: 12, color: "#A855F7", background: "none", border: "none", cursor: "pointer" }}>
+                Report issue
+              </button>
+            </div>
           </div>
         )}
 
