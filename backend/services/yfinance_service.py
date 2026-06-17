@@ -1,6 +1,16 @@
 import yfinance as yf
 import pandas as pd
+import requests as _requests
 from datetime import datetime, timedelta
+
+_SESSION = _requests.Session()
+_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+})
 
 
 def _safe(fn):
@@ -143,8 +153,8 @@ def _get_shares_trend(t):
                             shares_trend = "diluting"
                         else:
                             shares_trend = "stable"
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[yfinance] _get_shares_trend: {type(e).__name__}: {e}")
     return shares_history, shares_trend
 
 
@@ -204,15 +214,17 @@ def _get_insider_transactions(t):
                 insider_sentiment = "selling"
             else:
                 insider_sentiment = "mixed"
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[yfinance] _get_insider_transactions: {type(e).__name__}: {e}")
     return last_5, insider_sentiment
 
 
 def get_stock_data(ticker: str) -> dict:
-    t = yf.Ticker(ticker)
+    t = yf.Ticker(ticker, session=_SESSION)
 
     info = _safe(lambda: t.info) or {}
+    if not info:
+        print(f"[yfinance] {ticker} - t.info empty (cloud IP likely blocked by Yahoo Finance)")
 
     # fast_info uses a lighter endpoint that works reliably on cloud hosts
     fi = _safe(lambda: t.fast_info) or {}
@@ -240,7 +252,7 @@ def get_stock_data(ticker: str) -> dict:
     if revenue and net_income and revenue != 0:
         net_margin = (net_income / revenue) * 100
 
-    eps_ttm = info.get("trailingEps")
+    eps_ttm = None  # computed below after qfin is available
 
     # Free cash flow (TTM from annual)
     cf = _safe(lambda: t.cashflow)
@@ -273,6 +285,15 @@ def get_stock_data(ticker: str) -> dict:
     # Multi-year financials
     qfin = _safe(lambda: t.quarterly_financials)
     qcf = _safe(lambda: t.quarterly_cashflow)
+
+    # EPS TTM — compute from quarterly net income / shares (works without t.info)
+    net_income_ttm_raw = _ttm_sum(qfin, "Net Income")
+    shares_out = _fi("shares")
+    if net_income_ttm_raw is not None and shares_out and shares_out > 0:
+        eps_ttm = round(net_income_ttm_raw / shares_out, 4)
+    else:
+        eps_ttm = info.get("trailingEps")
+
     financials_history = {
         "fy_minus_2": _period_financials(fin, cf, 2),
         "fy_minus_1": _period_financials(fin, cf, 1),
@@ -308,8 +329,8 @@ def get_stock_data(ticker: str) -> dict:
                     "eps_estimate": float(eps_est) if eps_est is not None and not pd.isna(eps_est) else None,
                     "beat": beat,
                 })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[yfinance] {ticker} - earnings_history: {type(e).__name__}: {e}")
 
     # Institutional holders
     top_holder = None
@@ -320,8 +341,8 @@ def get_stock_data(ticker: str) -> dict:
         ih = t.institutional_holders
         if ih is not None and not ih.empty:
             top_holder = str(ih.iloc[0].get("Holder") or ih.iloc[0].iloc[0])
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[yfinance] {ticker} - institutional_holders: {type(e).__name__}: {e}")
 
     # Legacy insider action string (backward compat)
     recent_insider_action = None
@@ -335,8 +356,8 @@ def get_stock_data(ticker: str) -> dict:
             name = row.get("Insider") or row.get("Name") or ""
             if action:
                 recent_insider_action = f"{name} — {action}".strip(" —")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[yfinance] {ticker} - insider_transactions: {type(e).__name__}: {e}")
 
     last_5_insiders, insider_sentiment = _get_insider_transactions(t)
 

@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from services.yfinance_service import get_stock_data
-from services.fmp_service import get_sector_pe, get_valuation, get_profile, search_tickers
+from services.fmp_service import get_sector_pe, get_valuation, get_profile, search_tickers, get_earnings
 from services.news_service import get_news
 from services.verdict_service import compute_verdict
 from services.scoring import compute_quality_scores
@@ -137,6 +137,15 @@ def get_research(ticker: str, request: Request, user=Depends(_get_user)):
         "sector_pe": get_sector_pe(sector),
     }
 
+    # Earnings fallback: yfinance earnings_history fails on cloud IPs
+    research_earnings = stock["earnings_history"]
+    if not research_earnings:
+        research_earnings = get_earnings(ticker)
+
+    # Institutional % fallback from FMP ratios-ttm
+    if stock["institutional"].get("pct_held_institutions") is None and fmp_val.get("pct_held_institutions") is not None:
+        stock["institutional"]["pct_held_institutions"] = fmp_val["pct_held_institutions"]
+
     prism_data = {
         "ticker":             ticker,
         "company_name":       company_name,
@@ -150,7 +159,7 @@ def get_research(ticker: str, request: Request, user=Depends(_get_user)):
         "balance_sheet":      stock["balance_sheet"],
         "valuation":          valuation,
         "financials_history": stock.get("financials_history"),
-        "earnings_history":   stock["earnings_history"],
+        "earnings_history":   research_earnings,
         "institutional":      stock["institutional"],
     }
 
@@ -206,6 +215,15 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
     sector_pe = get_sector_pe(sector)
     news = get_news(ticker)
 
+    # Earnings fallback: yfinance earnings_history fails on cloud IPs
+    earnings_history = stock["earnings_history"]
+    if not earnings_history:
+        earnings_history = get_earnings(ticker)
+
+    # Institutional % fallback from FMP ratios-ttm
+    if stock["institutional"].get("pct_held_institutions") is None and fmp_val.get("pct_held_institutions") is not None:
+        stock["institutional"]["pct_held_institutions"] = fmp_val["pct_held_institutions"]
+
     fcf_ttm = stock["overview"].get("fcf_ttm")
     de_ratio = stock["balance_sheet"].get("de_ratio")
     eps_ttm = stock["overview"].get("eps_ttm")
@@ -233,7 +251,7 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         "overview": stock["overview"],
         "balance_sheet": stock["balance_sheet"],
         "valuation": valuation,
-        "earnings_history": stock["earnings_history"],
+        "earnings_history": earnings_history,
         "market_cap": stock["market_cap"],
     })
 
@@ -251,7 +269,7 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         "balance_sheet": stock["balance_sheet"],
         "valuation": valuation,
         "financials_history": stock.get("financials_history"),
-        "earnings_history": stock["earnings_history"],
+        "earnings_history": earnings_history,
         "news": news,
         "institutional": stock["institutional"],
         "verdict": verdict,
