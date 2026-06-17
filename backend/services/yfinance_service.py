@@ -1,16 +1,6 @@
 import yfinance as yf
 import pandas as pd
-import requests as _requests
 from datetime import datetime, timedelta
-
-_SESSION = _requests.Session()
-_SESSION.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-})
 
 
 def _safe(fn):
@@ -220,7 +210,7 @@ def _get_insider_transactions(t):
 
 
 def get_stock_data(ticker: str) -> dict:
-    t = yf.Ticker(ticker, session=_SESSION)
+    t = yf.Ticker(ticker)
 
     info = _safe(lambda: t.info) or {}
     if not info:
