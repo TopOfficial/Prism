@@ -17,7 +17,7 @@ from services.scoring import compute_quality_scores
 from services.research_service import run_stock_analysis
 from services.auth_service import (
     verify_jwt, get_account_status, consume_research,
-    save_history, list_history, get_history_report,
+    save_history, list_history, get_history_report, get_usage_stats,
 )
 from services.stripe_service import create_checkout_session, handle_webhook
 
@@ -57,7 +57,7 @@ def search(q: str = ""):
 @app.get("/me")
 def get_me(user=Depends(_get_user)):
     if not user:
-        return {"is_admin": False, "is_subscriber": False, "credits": 0, "free_research_available": False}
+        return {"is_admin": False, "is_subscriber": False, "credits": 0, "free_research_available": False, "next_free_research_at": None}
     return get_account_status(user.id)
 
 
@@ -99,6 +99,16 @@ async def stripe_webhook(request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return result
+
+
+@app.get("/stats")
+def get_stats(user=Depends(_get_user)):
+    """Admin-only usage dashboard: runs, users, top tickers, peak hours (Bangkok time)."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    if not get_account_status(user.id).get("is_admin"):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return get_usage_stats()
 
 
 @app.get("/history")

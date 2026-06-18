@@ -10,10 +10,11 @@ import AuthModal from "./components/AuthModal";
 import ResearchPanel from "./components/ResearchPanel";
 import PricingModal from "./components/PricingModal";
 import HistorySidebar from "./components/HistorySidebar";
+import { Analytics } from "@vercel/analytics/react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-const EMPTY_ACCOUNT = { is_admin: false, is_subscriber: false, credits: 0, free_research_available: false };
+const EMPTY_ACCOUNT = { is_admin: false, is_subscriber: false, credits: 0, free_research_available: false, next_free_research_at: null };
 
 function loadCachedAccount() {
   try {
@@ -373,6 +374,7 @@ export default function App() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       {showPricing && <PricingModal account={account} onClose={() => setShowPricing(false)} onCheckout={startCheckout} />}
+      <Analytics />
     </div>
   );
 }

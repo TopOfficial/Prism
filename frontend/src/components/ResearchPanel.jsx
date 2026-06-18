@@ -195,12 +195,19 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
           </span>
         </div>
 
-        {status === "done" && (
-          <button onClick={() => { setStatus("idle"); setReport(null); }}
-            style={{ fontSize: 12, color: "#3D5068", background: "none", border: "none", cursor: "pointer" }}>
-            Clear
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {!account?.is_subscriber && !account?.is_admin && !account?.free_research_available && account?.next_free_research_at && (
+            <span style={{ fontSize: 11, color: "#64748B", fontFamily: "'Space Grotesk', sans-serif" }}>
+              Next free deep research: {new Date(account.next_free_research_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </span>
+          )}
+          {status === "done" && (
+            <button onClick={() => { setStatus("idle"); setReport(null); }}
+              style={{ fontSize: 12, color: "#3D5068", background: "none", border: "none", cursor: "pointer" }}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Body */}

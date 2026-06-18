@@ -48,17 +48,19 @@ def get_account_status(user_id: str) -> dict:
     """Returns the user's entitlement summary for the frontend."""
     record = get_user_record(user_id)
     if not record:
-        return {"is_admin": False, "is_subscriber": False, "credits": 0, "free_research_available": False}
+        return {"is_admin": False, "is_subscriber": False, "credits": 0, "free_research_available": False, "next_free_research_at": None}
 
     now = datetime.now(timezone.utc)
     reset_at = _parse_ts(record.get("free_research_reset_at"))
     free_available = reset_at is None or (now - reset_at) >= _FREE_RESEARCH_PERIOD
+    next_free_at = None if free_available else reset_at + _FREE_RESEARCH_PERIOD
 
     return {
         "is_admin": bool(record.get("is_admin")),
         "is_subscriber": bool(record.get("is_subscriber")),
         "credits": int(record.get("credits") or 0),
         "free_research_available": free_available,
+        "next_free_research_at": next_free_at.isoformat() if next_free_at else None,
     }
 
 
@@ -184,6 +186,45 @@ def list_history(user_id: str) -> list:
         return res.data or []
     except Exception:
         return []
+
+
+def get_usage_stats() -> dict:
+    """Aggregate usage numbers for the admin dashboard. Computed in Python — fine at low
+    volume; move to a Postgres view/RPC if research_history grows past tens of thousands of rows."""
+    from collections import Counter
+
+    sb = _sb()
+    now = datetime.now(timezone.utc)
+
+    hist = (sb.table("research_history").select("ticker, user_id, created_at").execute().data) or []
+    users = (sb.table("users").select("is_subscriber, is_admin, credits").execute().data) or []
+
+    week_ago = now - timedelta(days=7)
+    runs_7d = 0
+    hour_counts: dict[int, int] = {}
+    for h in hist:
+        ts = _parse_ts(h.get("created_at"))
+        if ts is None:
+            continue
+        if ts >= week_ago:
+            runs_7d += 1
+        bkk_hour = int((ts + timedelta(hours=7)).hour)  # UTC → Bangkok (UTC+7)
+        hour_counts[bkk_hour] = hour_counts.get(bkk_hour, 0) + 1
+
+    top_tickers = Counter(h["ticker"] for h in hist if h.get("ticker")).most_common(15)
+
+    return {
+        "total_runs": len(hist),
+        "runs_last_7_days": runs_7d,
+        "unique_users_run": len({h["user_id"] for h in hist if h.get("user_id")}),
+        "registered_users": len(users),
+        "subscribers": sum(1 for u in users if u.get("is_subscriber")),
+        "admins": sum(1 for u in users if u.get("is_admin")),
+        "credits_outstanding": sum(int(u.get("credits") or 0) for u in users),
+        "top_tickers": [{"ticker": t, "runs": c} for t, c in top_tickers],
+        "runs_by_bkk_hour": dict(sorted(hour_counts.items())),
+        "generated_at": now.isoformat(),
+    }
 
 
 def get_history_report(user_id: str, ticker: str) -> dict | None:
