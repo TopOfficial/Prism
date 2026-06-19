@@ -276,12 +276,12 @@ export default function App() {
         </header>
 
         {/* Search */}
-        <div className="animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
+        <div className="relative z-20 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
           <SearchBar onSubmit={handleSearch} loading={loading} initialValue={ticker} />
         </div>
 
         {/* Body */}
-        <div className="mt-6 pb-12">
+        <div className="relative z-10 mt-6 pb-12">
           {loading && <LoadingState ticker={ticker} />}
           {error && <ErrorState ticker={ticker} message={error} />}
 
