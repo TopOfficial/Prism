@@ -157,6 +157,22 @@ def consume_research(user_id: str) -> tuple[bool, str]:
         return False, "no_credits"
 
 
+# ── Feedback ─────────────────────────────────────────────────────────────────
+
+def save_feedback(ticker: str, verdict: str, thumbs: str, comment: str) -> bool:
+    try:
+        _sb().table("feedback").insert({
+            "ticker": ticker,
+            "verdict": verdict or None,
+            "thumbs": thumbs,
+            "comment": comment or None,
+        }).execute()
+        return True
+    except Exception as e:
+        print(f"[AUTH] save_feedback failed for {ticker}: {e}")
+        return False
+
+
 # ── Per-user research history ──────────────────────────────────────────────────
 
 def save_history(user_id: str, ticker: str, company_name: str | None, report: str) -> None:

@@ -17,7 +17,7 @@ from services.scoring import compute_quality_scores
 from services.research_service import run_stock_analysis
 from services.auth_service import (
     verify_jwt, get_account_status, consume_research,
-    save_history, list_history, get_history_report, get_usage_stats,
+    save_history, list_history, get_history_report, get_usage_stats, save_feedback,
 )
 from services.stripe_service import create_checkout_session, handle_webhook
 
@@ -70,8 +70,8 @@ async def post_feedback(request: Request):
     comment = str(body.get("comment") or "").strip()
     if not ticker or not thumbs:
         raise HTTPException(status_code=422, detail="ticker and thumbs are required")
-    print(f"[FEEDBACK] {ticker} | {verdict} | {thumbs}" + (f" | {comment}" if comment else ""))
-    return {"ok": True}
+    saved = save_feedback(ticker, verdict, thumbs, comment)
+    return {"ok": saved}
 
 
 @app.post("/create-checkout-session")

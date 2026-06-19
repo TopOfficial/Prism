@@ -110,6 +110,21 @@ end;
 $$;
 
 
+-- 3c. Thumbs up/down feedback on a brief (anonymous — no auth required to submit)
+create table if not exists public.feedback (
+  id         bigint generated always as identity primary key,
+  ticker     text not null,
+  verdict    text,
+  thumbs     text not null,            -- 'up' | 'down'
+  comment    text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.feedback enable row level security;
+create policy "service role: all" on public.feedback
+  using (true) with check (true);
+
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4. MIGRATION — run ONLY if upgrading an existing project from the old schema
 -- ─────────────────────────────────────────────────────────────────────────────
