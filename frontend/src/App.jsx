@@ -369,6 +369,14 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* Footer disclaimer */}
+        <footer className="text-center pb-6" style={{ color: "#3D5068" }}>
+          <p className="text-xs">
+            Prism is for informational purposes only — not financial advice.
+            Investing involves risk, including loss of principal. Use at your own risk; verify independently before making any investment decision.
+          </p>
+        </footer>
       </div>
 
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
