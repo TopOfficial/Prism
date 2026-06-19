@@ -84,11 +84,6 @@ export default function App() {
   }
 
   useEffect(() => {
-    const saved = localStorage.getItem("prism_last_ticker");
-    if (saved) handleSearch(saved);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       fetchAccount(session);
@@ -126,7 +121,6 @@ export default function App() {
 
   async function handleSearch(t, { tab = "brief" } = {}) {
     setTicker(t);
-    localStorage.setItem("prism_last_ticker", t);
     setLoading(true);
     setError(null);
     setData(null);
@@ -373,7 +367,7 @@ export default function App() {
         {/* Footer disclaimer */}
         <footer className="text-center pb-6" style={{ color: "#3D5068" }}>
           <p className="text-xs">
-            Prism is for informational purposes only — not financial advice.
+            Prism is for informational purposes only, not financial advice.
             Investing involves risk, including loss of principal. Use at your own risk; verify independently before making any investment decision.
           </p>
         </footer>

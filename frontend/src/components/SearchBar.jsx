@@ -14,13 +14,15 @@ export default function SearchBar({ onSubmit, loading, initialValue = "" }) {
   const [highlighted, setHighlighted] = useState(-1);
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
+  const skipFetchRef = useRef(false);
 
   const fetchSuggestions = useCallback(debounce(async (q) => {
+    if (skipFetchRef.current) return;
     if (q.length < 1) { setSuggestions([]); return; }
     try {
       const res = await fetch(`${API}/search?q=${encodeURIComponent(q)}`);
-      if (res.ok) setSuggestions(await res.json());
-    } catch { setSuggestions([]); }
+      if (res.ok && !skipFetchRef.current) setSuggestions(await res.json());
+    } catch { if (!skipFetchRef.current) setSuggestions([]); }
   }, 200), []);
 
   useEffect(() => {
@@ -40,6 +42,8 @@ export default function SearchBar({ onSubmit, loading, initialValue = "" }) {
   }, []);
 
   function selectSuggestion(symbol) {
+    if (loading) return;
+    skipFetchRef.current = true;
     setValue(symbol);
     setSuggestions([]);
     onSubmit(symbol);
@@ -47,8 +51,13 @@ export default function SearchBar({ onSubmit, loading, initialValue = "" }) {
 
   function handleSubmit(e) {
     e.preventDefault();
+    if (loading) return;
     const t = value.trim().toUpperCase();
-    if (t) { setSuggestions([]); onSubmit(t); }
+    if (t) {
+      skipFetchRef.current = true;
+      setSuggestions([]);
+      onSubmit(t);
+    }
   }
 
   function handleKeyDown(e) {
@@ -82,14 +91,13 @@ export default function SearchBar({ onSubmit, loading, initialValue = "" }) {
             ref={inputRef}
             type="text"
             value={value}
-            onChange={(e) => setValue(e.target.value.toUpperCase())}
+            onChange={(e) => { skipFetchRef.current = false; setValue(e.target.value.toUpperCase()); }}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={handleKeyDown}
             placeholder="Ticker symbol — AAPL, TSLA, NVDA..."
             className="flex-1 bg-transparent text-white focus:outline-none text-sm py-2 min-w-0"
             style={{ fontFamily: "'Fira Code', monospace", color: "#E2E8F0" }}
-            disabled={loading}
             autoFocus
             autoComplete="off"
             spellCheck="false"
