@@ -16,6 +16,7 @@ export default function SearchBar({ onSubmit, loading, initialValue = "" }) {
   const dropdownRef = useRef(null);
   const skipFetchRef = useRef(false);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced fn intentionally created once
   const fetchSuggestions = useCallback(debounce(async (q) => {
     if (skipFetchRef.current) return;
     if (q.length < 1) { setSuggestions([]); return; }
@@ -28,7 +29,7 @@ export default function SearchBar({ onSubmit, loading, initialValue = "" }) {
   useEffect(() => {
     fetchSuggestions(value);
     setHighlighted(-1);
-  }, [value]);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchSuggestions is stable
 
   // Close dropdown on outside click
   useEffect(() => {

@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 _client_cache = None
 
 _FREE_RESEARCH_PERIOD = timedelta(days=7)  # 1 free Deep Research per week
+SHARED_CACHE_MAX_AGE = timedelta(days=5)   # reuse another user's report if generated within this window
 
 
 def _sb():
@@ -119,42 +120,53 @@ def grant_from_stripe(
 
 def consume_research(user_id: str) -> tuple[bool, str]:
     """
-    Charge a user for one Deep Research run.
-    Resolution order: admin/subscriber (free, unlimited) → weekly free → credits.
+    Charge a user for one Deep Research run via the atomic `consume_research` Postgres
+    function (row-locked, so concurrent requests can't double-spend a credit).
+    Resolution order: admin/subscriber (unlimited) → weekly free → credits.
     Returns (allowed, charge_type) where charge_type is one of:
-    'unlimited', 'free_weekly', 'credit', or a denial reason 'no_credits'.
+    'unlimited', 'free_weekly', 'credit', or the denial reason 'no_credits'.
     """
     try:
-        record = get_user_record(user_id)
-        if not record:
-            return False, "no_credits"
-
-        if record.get("is_admin") or record.get("is_subscriber"):
-            return True, "unlimited"
-
-        now = datetime.now(timezone.utc)
-        reset_at = _parse_ts(record.get("free_research_reset_at"))
-
-        # Weekly free research takes priority so credits are never wasted
-        if reset_at is None or (now - reset_at) >= _FREE_RESEARCH_PERIOD:
-            _sb().table("users").update({
-                "free_research_reset_at": now.isoformat(),
-            }).eq("id", user_id).execute()
-            return True, "free_weekly"
-
-        credits = int(record.get("credits") or 0)
-        if credits > 0:
-            _sb().table("users").update({
-                "credits": credits - 1,
-            }).eq("id", user_id).execute()
-            return True, "credit"
-
-        return False, "no_credits"
-
+        res = _sb().rpc("consume_research", {"p_user_id": user_id}).execute()
+        charge_type = res.data if isinstance(res.data, str) else "no_credits"
+        return charge_type != "no_credits", charge_type
     except Exception as e:
         print(f"[AUTH] consume_research failed for {user_id}: {e}")
         # On infra error, deny so we never give away paid analysis for free by accident
         return False, "no_credits"
+
+
+def refund_research(user_id: str, charge_type: str) -> None:
+    """Reverse a consume_research charge when the analysis fails after charging.
+    Atomic via the `refund_research` Postgres function. No-op for 'unlimited'/'no_credits'."""
+    if charge_type not in ("credit", "free_weekly"):
+        return
+    try:
+        _sb().rpc("refund_research", {"p_user_id": user_id, "p_charge_type": charge_type}).execute()
+        print(f"[AUTH] refund_research: {user_id} refunded {charge_type}")
+    except Exception as e:
+        print(f"[AUTH] refund_research failed for {user_id}: {e}")
+
+
+def acquire_research_lock(user_id: str, ticker: str) -> bool:
+    """Try to claim the per-(user, ticker) run lock so two concurrent requests can't both
+    run the expensive analysis. Returns True if acquired. Fails OPEN (returns True) on infra
+    error — this is a best-effort dedup guard and must never block a paying user if the DB
+    hiccups; the atomic charge still protects against double-spend."""
+    try:
+        res = _sb().rpc("acquire_research_lock", {"p_user_id": user_id, "p_ticker": ticker}).execute()
+        return bool(res.data)
+    except Exception as e:
+        print(f"[AUTH] acquire_research_lock failed for {user_id}/{ticker}: {e}")
+        return True
+
+
+def release_research_lock(user_id: str, ticker: str) -> None:
+    """Release the per-(user, ticker) run lock. Idempotent (no-op if not held)."""
+    try:
+        _sb().rpc("release_research_lock", {"p_user_id": user_id, "p_ticker": ticker}).execute()
+    except Exception as e:
+        print(f"[AUTH] release_research_lock failed for {user_id}/{ticker}: {e}")
 
 
 # ── Feedback ─────────────────────────────────────────────────────────────────
@@ -175,18 +187,49 @@ def save_feedback(ticker: str, verdict: str, thumbs: str, comment: str) -> bool:
 
 # ── Per-user research history ──────────────────────────────────────────────────
 
-def save_history(user_id: str, ticker: str, company_name: str | None, report: str) -> None:
-    """Upsert one report per (user, ticker). Re-analyze overwrites the prior entry."""
+def save_history(user_id: str, ticker: str, company_name: str | None, report: str,
+                  created_at: str | None = None, source: str = "fresh") -> None:
+    """Upsert one report per (user, ticker). Re-analyze overwrites the prior entry.
+    Pass `created_at` to preserve the original generation time when copying a shared
+    report, so the freshness window doesn't reset every time it's reused."""
     try:
         _sb().table("research_history").upsert({
             "user_id": user_id,
             "ticker": ticker,
             "company_name": company_name,
             "report": report,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": created_at or datetime.now(timezone.utc).isoformat(),
+            "source": source,
         }, on_conflict="user_id,ticker").execute()
     except Exception as e:
         print(f"[AUTH] save_history failed for {user_id}/{ticker}: {e}")
+
+
+def get_shared_report(ticker: str, exclude_user_id: str,
+                       newer_than: str | None = None) -> dict | None:
+    """Freshest *other* user's report for this ticker within SHARED_CACHE_MAX_AGE.
+    Excludes exclude_user_id (the requester's own row never satisfies their own request).
+    If newer_than is given (the requester's own existing report's created_at), only a
+    peer report strictly more recent than that qualifies — so a first-time analysis
+    reuses any fresh peer, while a Re-analyze only reuses a peer newer than what the
+    user already has, otherwise it falls through to a genuinely fresh Claude run."""
+    try:
+        cutoff = (datetime.now(timezone.utc) - SHARED_CACHE_MAX_AGE).isoformat()
+        q = (
+            _sb().table("research_history")
+            .select("ticker, company_name, report, created_at")
+            .eq("ticker", ticker)
+            .neq("user_id", exclude_user_id)
+            .gte("created_at", cutoff)
+        )
+        if newer_than:
+            q = q.gt("created_at", newer_than)
+        res = q.order("created_at", desc=True).limit(1).execute()
+        rows = res.data or []
+        return rows[0] if rows else None
+    except Exception as e:
+        print(f"[AUTH] get_shared_report failed for {ticker}: {e}")
+        return None
 
 
 def list_history(user_id: str) -> list:
@@ -212,11 +255,12 @@ def get_usage_stats() -> dict:
     sb = _sb()
     now = datetime.now(timezone.utc)
 
-    hist = (sb.table("research_history").select("ticker, user_id, created_at").execute().data) or []
+    hist = (sb.table("research_history").select("ticker, user_id, created_at, source").execute().data) or []
     users = (sb.table("users").select("is_subscriber, is_admin, credits").execute().data) or []
 
     week_ago = now - timedelta(days=7)
     runs_7d = 0
+    shared_reuses_7d = 0
     hour_counts: dict[int, int] = {}
     for h in hist:
         ts = _parse_ts(h.get("created_at"))
@@ -224,6 +268,8 @@ def get_usage_stats() -> dict:
             continue
         if ts >= week_ago:
             runs_7d += 1
+            if h.get("source") == "shared":
+                shared_reuses_7d += 1
         bkk_hour = int((ts + timedelta(hours=7)).hour)  # UTC → Bangkok (UTC+7)
         hour_counts[bkk_hour] = hour_counts.get(bkk_hour, 0) + 1
 
@@ -232,6 +278,7 @@ def get_usage_stats() -> dict:
     return {
         "total_runs": len(hist),
         "runs_last_7_days": runs_7d,
+        "shared_reuses_7d": shared_reuses_7d,
         "unique_users_run": len({h["user_id"] for h in hist if h.get("user_id")}),
         "registered_users": len(users),
         "subscribers": sum(1 for u in users if u.get("is_subscriber")),

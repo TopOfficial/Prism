@@ -1,8 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { EXAMPLE_REPORT } from "../lib/exampleReport";
+
+// Code-split the markdown renderer — only loaded when a report is shown.
+const MarkdownReport = lazy(() => import("./MarkdownReport"));
+const MarkdownFallback = () => (
+  <p className="text-xs" style={{ color: "#64748B" }}>Rendering report…</p>
+);
 
 // Markdown element styles matching Prism dark theme
 const MD = {
@@ -82,6 +86,33 @@ function daysSince(iso) {
   return Math.floor(ms / 86400000);
 }
 
+// A run takes ~1-2 minutes server-side; give it generous headroom before giving up on resuming it.
+const PENDING_TTL_MS = 3 * 60 * 1000;
+const POLL_INTERVAL_MS = 4000;
+
+function pendingKey(userId, ticker) {
+  return `prism_research_pending_${userId}_${ticker}`;
+}
+
+// Returns the run's start time if a job for this user+ticker was started recently and hasn't
+// resolved yet (e.g. the page was refreshed mid-run), or null otherwise. Clears stale flags.
+function getPendingStart(userId, ticker) {
+  if (!userId) return null;
+  const key = pendingKey(userId, ticker);
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { startedAt } = JSON.parse(raw);
+    if (!startedAt || Date.now() - startedAt > PENDING_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return startedAt;
+  } catch {
+    return null;
+  }
+}
+
 export default function ResearchPanel({ ticker, user, account, canRun, hasHistory, apiBase, onUpgrade, onRunComplete }) {
   const [status, setStatus] = useState("idle"); // idle | locked | loading | done | error
   const [report, setReport] = useState(null);
@@ -90,20 +121,67 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
   const [elapsed, setElapsed] = useState(0);
   const [showExample, setShowExample] = useState(false);
   const timerRef = useRef(null);
+  const pollRef = useRef(null);
   const loadedRef = useRef(null); // ticker whose report is currently displayed
 
   // Load a saved report only when one exists (avoids a blind 404). Free to view.
   useEffect(() => {
     let cancelled = false;
+    clearInterval(pollRef.current);
     // A report for this exact ticker is already displayed (e.g. just-run) — don't disturb it.
     if (loadedRef.current === ticker) return;
+
+    setErrMsg(null);
+    setShowExample(false);
+
+    // A run for this user+ticker was already in flight (e.g. the page got refreshed mid-run) —
+    // resume the loading state and poll for the saved report instead of dropping back to idle,
+    // which would otherwise invite a second (re-charged) run on top of the one still going.
+    const pendingStart = getPendingStart(user?.id, ticker);
+    if (pendingStart) {
+      setStatus("loading");
+      setReport(null);
+      setCreatedAt(null);
+      setElapsed(Math.floor((Date.now() - pendingStart) / 1000));
+
+      const poll = async () => {
+        if (cancelled) return;
+        if (Date.now() - pendingStart > PENDING_TTL_MS) {
+          localStorage.removeItem(pendingKey(user?.id, ticker));
+          clearInterval(pollRef.current);
+          if (!cancelled) setStatus("idle");
+          return;
+        }
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session || cancelled) return;
+        try {
+          const res = await fetch(`${apiBase}/history/${ticker}`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (!res.ok || cancelled) return;
+          const d = await res.json();
+          // Only treat it as the run we're waiting on once it's newer than when that run started
+          // (otherwise an older saved report for this ticker would be picked up immediately).
+          if (d.created_at && new Date(d.created_at).getTime() >= pendingStart) {
+            clearInterval(pollRef.current);
+            localStorage.removeItem(pendingKey(user?.id, ticker));
+            setReport(d.report);
+            setCreatedAt(d.created_at);
+            setStatus("done");
+            loadedRef.current = ticker;
+            if (onRunComplete) onRunComplete();
+          }
+        } catch { /* keep polling */ }
+      };
+      poll();
+      pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
+      return () => { cancelled = true; clearInterval(pollRef.current); };
+    }
 
     setStatus("idle");
     setReport(null);
     setCreatedAt(null);
-    setErrMsg(null);
     setElapsed(0);
-    setShowExample(false);
     if (!user || !hasHistory) return;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -121,6 +199,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
       } catch { /* no saved report */ }
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onRunComplete is a stable callback
   }, [ticker, user, hasHistory, apiBase]);
 
   useEffect(() => {
@@ -140,6 +219,9 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
     setReport(null);
     setErrMsg(null);
 
+    const key = pendingKey(user.id, ticker);
+    try { localStorage.setItem(key, JSON.stringify({ startedAt: Date.now() })); } catch {}
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${apiBase}/research/${ticker}`, {
@@ -150,6 +232,11 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
         const body = await res.json().catch(() => ({}));
         if (res.status === 402 || res.status === 401 || body.detail === "no_credits") {
           setStatus("locked");
+          return;
+        }
+        // 409: another run for this ticker is already in flight (e.g. a second tab).
+        if (res.status === 409 || body.detail === "analysis_in_progress") {
+          setStatus("inprogress");
           return;
         }
         throw new Error(body.detail || `HTTP ${res.status}`);
@@ -163,7 +250,27 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
     } catch (e) {
       setErrMsg(e.message || "Analysis failed");
       setStatus("error");
+    } finally {
+      try { localStorage.removeItem(key); } catch {}
     }
+  }
+
+  // Free check for a result already saved by the in-flight run (no charge, no new run).
+  async function checkForResult() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    try {
+      const res = await fetch(`${apiBase}/history/${ticker}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return; // still running — stay on the in-progress screen
+      const d = await res.json();
+      setReport(d.report);
+      setCreatedAt(d.created_at);
+      setStatus("done");
+      loadedRef.current = ticker;
+      if (onRunComplete) onRunComplete();
+    } catch { /* leave as in-progress */ }
   }
 
   const runLabel =
@@ -233,9 +340,9 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
 
             {/* Rendered example */}
             <div style={{ maxWidth: "100%" }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
-                {EXAMPLE_REPORT}
-              </ReactMarkdown>
+              <Suspense fallback={<MarkdownFallback />}>
+                <MarkdownReport components={MD}>{EXAMPLE_REPORT}</MarkdownReport>
+              </Suspense>
             </div>
 
             {/* Bottom upgrade CTA */}
@@ -322,6 +429,24 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
           </div>
         )}
 
+        {/* IN PROGRESS — a run for this ticker is already happening (e.g. another tab) */}
+        {!showExample && status === "inprogress" && (
+          <div className="py-6 text-center animate-fade-in">
+            <div style={{ fontSize: 24, marginBottom: 10 }}>⏳</div>
+            <p className="text-sm font-medium mb-1" style={{ color: "#E2E8F0" }}>
+              This ticker is already being analyzed
+            </p>
+            <p className="text-sm mb-5" style={{ color: "#64748B" }}>
+              A Deep Research run for {ticker} is in progress — hang tight, it'll appear shortly.
+            </p>
+            <button onClick={checkForResult}
+              className="text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer"
+              style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.4)", color: "#A855F7" }}>
+              Check again
+            </button>
+          </div>
+        )}
+
         {/* ERROR */}
         {!showExample && status === "error" && (
           <div className="py-4">
@@ -381,9 +506,9 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
               </div>
             )}
 
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
-              {report}
-            </ReactMarkdown>
+            <Suspense fallback={<MarkdownFallback />}>
+              <MarkdownReport components={MD}>{report}</MarkdownReport>
+            </Suspense>
           </div>
         )}
       </div>

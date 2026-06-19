@@ -20,8 +20,6 @@ def _score_business_quality(fh):
     skipped = False
 
     ttm = fh.get("ttm") or {}
-    fy_cur = fh.get("fy_current") or {}
-    fy_m1 = fh.get("fy_minus_1") or {}
 
     gm = ttm.get("gross_margin_pct")
     om = ttm.get("operating_margin_pct")

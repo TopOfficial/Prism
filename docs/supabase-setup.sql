@@ -49,6 +49,7 @@ create table if not exists public.research_history (
   company_name text,
   report       text not null,
   created_at   timestamptz not null default now(),
+  source       text not null default 'fresh',  -- 'fresh' (own Claude run) | 'shared' (reused another user's report)
   primary key (user_id, ticker)
 );
 
@@ -58,6 +59,11 @@ create policy "history: read own" on public.research_history
   for select using (auth.uid() = user_id);
 create policy "service role: all" on public.research_history
   using (true) with check (true);
+
+-- 3a. Supports the shared-cache lookup in get_shared_report() — finds the freshest
+--     *other* user's report for a ticker within the reuse window.
+create index if not exists research_history_ticker_created_at_idx
+  on public.research_history (ticker, created_at desc);
 
 -- 3b. Stripe webhook idempotency + atomic entitlement grant
 --     Stripe delivers webhooks at-least-once and retries on 5xx, so the grant must be
@@ -125,6 +131,113 @@ create policy "service role: all" on public.feedback
   using (true) with check (true);
 
 
+-- 3d. Atomic Deep Research charge + refund.
+--     The old Python read-modify-write (read credits, then update credits-1) could
+--     double-spend under concurrent requests. These functions resolve and mutate in a
+--     single transaction with a row lock (`for update`), so concurrent calls serialize.
+--     Resolution order matches the old logic: admin/subscriber → weekly free → credits.
+create or replace function public.consume_research(p_user_id uuid)
+returns text
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_rec    public.users%rowtype;
+  v_now    timestamptz := now();
+  v_period interval := interval '7 days';
+begin
+  select * into v_rec from public.users where id = p_user_id for update;
+  if not found then
+    return 'no_credits';
+  end if;
+
+  if v_rec.is_admin or v_rec.is_subscriber then
+    return 'unlimited';
+  end if;
+
+  if v_rec.free_research_reset_at is null
+     or (v_now - v_rec.free_research_reset_at) >= v_period then
+    update public.users set free_research_reset_at = v_now where id = p_user_id;
+    return 'free_weekly';
+  end if;
+
+  if coalesce(v_rec.credits, 0) > 0 then
+    update public.users set credits = credits - 1 where id = p_user_id;
+    return 'credit';
+  end if;
+
+  return 'no_credits';
+end;
+$$;
+
+-- Reverses exactly one consume_research charge when the analysis fails after charging.
+-- 'free_weekly' refund clears the weekly timer (user becomes eligible again now).
+create or replace function public.refund_research(p_user_id uuid, p_charge_type text)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if p_charge_type = 'credit' then
+    update public.users set credits = coalesce(credits, 0) + 1 where id = p_user_id;
+  elsif p_charge_type = 'free_weekly' then
+    update public.users set free_research_reset_at = null where id = p_user_id;
+  end if;
+end;
+$$;
+
+
+-- 3e. Per-(user, ticker) lock so two concurrent /research requests can't both run the
+--     expensive Claude analysis (the atomic charge in 3d prevents double-CHARGE, this
+--     prevents double-RUN). A row = an in-flight run. TTL reclaim means a crashed request
+--     that never released its lock can't block the ticker forever.
+create table if not exists public.research_locks (
+  user_id    uuid not null,
+  ticker     text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, ticker)
+);
+
+alter table public.research_locks enable row level security;
+create policy "service role: all" on public.research_locks
+  using (true) with check (true);
+
+-- Atomically claim the lock. Returns true if acquired (no live lock existed, or the
+-- existing one was older than p_ttl_seconds and got reclaimed), false if another run holds it.
+create or replace function public.acquire_research_lock(
+  p_user_id uuid, p_ticker text, p_ttl_seconds int default 300
+)
+returns boolean
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+begin
+  insert into public.research_locks (user_id, ticker, created_at)
+  values (p_user_id, p_ticker, v_now)
+  on conflict (user_id, ticker) do update
+    set created_at = v_now
+    where public.research_locks.created_at < v_now - make_interval(secs => p_ttl_seconds);
+  -- We hold the lock iff the stored timestamp is the one we just wrote.
+  return exists (
+    select 1 from public.research_locks
+    where user_id = p_user_id and ticker = p_ticker and created_at = v_now
+  );
+end;
+$$;
+
+create or replace function public.release_research_lock(p_user_id uuid, p_ticker text)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  delete from public.research_locks where user_id = p_user_id and ticker = p_ticker;
+end;
+$$;
+
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4. MIGRATION — run ONLY if upgrading an existing project from the old schema
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +252,8 @@ create policy "service role: all" on public.feedback
 -- drop table if exists public.research_cache;
 -- (then run section 3 above to create research_history)
 -- (and run section 3b above to create stripe_events + the grant_from_stripe function)
+-- alter table public.research_history add column if not exists source text not null default 'fresh';
+-- (then run section 3a above to add the ticker/created_at index, if not already present)
 
 -- 5. Make yourself admin (unlimited, no credit charge). Find your UID in
 --    Supabase → Authentication → Users → click your email → User UID.

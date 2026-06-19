@@ -29,6 +29,12 @@ export default [
       ...react.configs['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
       'react/jsx-no-target-blank': 'off',
+      // This codebase intentionally uses inline destructured props, not PropTypes,
+      // and plain apostrophes in copy — these rules were pure noise burying real issues.
+      'react/prop-types': 'off',
+      'react/no-unescaped-entities': 'off',
+      // Best-effort try/catch around localStorage/network is a deliberate pattern.
+      'no-empty': ['error', { allowEmptyCatch: true }],
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

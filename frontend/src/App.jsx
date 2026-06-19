@@ -96,7 +96,7 @@ export default function App() {
       fetchHistory(session);
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
 
   // Returning from a successful Stripe checkout: refresh entitlements and clean the URL.
   // The webhook that grants credits may land a beat after the redirect, so refetch twice.
@@ -112,7 +112,7 @@ export default function App() {
     setShowPricing(false);
     window.history.replaceState({}, "", window.location.pathname);
     return () => clearTimeout(t);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
 
   async function _authHeaders() {
     const { data: { session } } = await supabase.auth.getSession();

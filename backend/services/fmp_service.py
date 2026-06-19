@@ -70,7 +70,7 @@ def get_earnings(ticker: str) -> list:
 def get_profile(ticker: str) -> dict:
     result = {"company_name": None, "sector": None, "price": None,
               "change_pct_1d": None, "market_cap": None,
-              "week_52_high": None, "week_52_low": None}
+              "week_52_high": None, "week_52_low": None, "exchange": None}
     api_key = _key()
     if not api_key:
         return result
@@ -82,6 +82,7 @@ def get_profile(ticker: str) -> dict:
             p = data[0]
             result["company_name"] = p.get("companyName")
             result["sector"] = p.get("sector")
+            result["exchange"] = p.get("exchangeShortName") or p.get("exchange")
             result["price"] = float(p["price"]) if p.get("price") is not None else None
             # changesPercentage is the actual % change; "changes" is dollar change
             pct = p.get("changesPercentage")
@@ -123,7 +124,20 @@ def search_tickers(query: str, limit: int = 8) -> list:
         return []
 
 
-def get_sector_pe(sector: str) -> float | None:
+def _exchange_for_snapshot(exchange: str | None) -> str:
+    """Map a stock's listing exchange to a sector-pe-snapshot exchange code.
+    Defaults to NYSE when unknown (preserves prior behavior)."""
+    if not exchange:
+        return "NYSE"
+    e = exchange.strip().upper()
+    if "NASDAQ" in e or e in ("NMS", "NGM", "NCM", "NGS"):
+        return "NASDAQ"
+    if "AMEX" in e or "AMERICAN" in e:
+        return "AMEX"
+    return "NYSE"
+
+
+def get_sector_pe(sector: str, exchange: str | None = None) -> float | None:
     api_key = _key()
     if not api_key or not sector:
         return None
@@ -131,16 +145,21 @@ def get_sector_pe(sector: str) -> float | None:
         today = date.today().isoformat()
         r = requests.get(
             f"{BASE}/sector-pe-snapshot",
-            params={"date": today, "exchange": "NYSE", "apikey": api_key},
+            params={"date": today, "exchange": _exchange_for_snapshot(exchange), "apikey": api_key},
             timeout=10,
         )
         r.raise_for_status()
         data = r.json()
         if not isinstance(data, list):
             return None
-        sector_lower = sector.lower()
+        sector_lower = sector.strip().lower()
+        if not sector_lower:
+            return None
         for entry in data:
-            if entry.get("sector", "").lower() in sector_lower or sector_lower in entry.get("sector", "").lower():
+            es = (entry.get("sector") or "").strip().lower()
+            if not es:
+                continue  # skip blank sector entries — '' in x is always True (the old bug)
+            if es == sector_lower or es in sector_lower or sector_lower in es:
                 val = entry.get("pe")
                 return float(val) if val is not None else None
     except Exception as e:

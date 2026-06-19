@@ -16,7 +16,7 @@ export default function FeedbackWidget({ ticker, verdict, apiBase }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker, verdict, thumbs, comment }),
       });
-    } catch (_) {
+    } catch {
       // best-effort — don't block UI on network failure
     } finally {
       setSending(false);
@@ -33,8 +33,9 @@ export default function FeedbackWidget({ ticker, verdict, apiBase }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker, verdict, thumbs: vote, comment }),
       });
-    } catch (_) {}
-    finally {
+    } catch {
+      // best-effort — don't block UI on network failure
+    } finally {
       setSending(false);
       setSubmitted(true);
     }

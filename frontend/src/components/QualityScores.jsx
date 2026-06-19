@@ -43,17 +43,20 @@ function ScoreBar({ label, score, color, delay }) {
 }
 
 export default function QualityScores({ scores }) {
-  if (!scores) return null;
-
-  const overall = scores.overall;
-  const overallColor = overall >= 7 ? "#34D399" : overall >= 5 ? "#FCD34D" : "#F87171";
-  const circumference = 2 * Math.PI * 26;
+  // Hooks must run unconditionally and in the same order every render, so they go
+  // before any early return (Rules of Hooks).
   const [drawn, setDrawn] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDrawn(true), 100);
     return () => clearTimeout(t);
   }, []);
+
+  if (!scores) return null;
+
+  const overall = scores.overall;
+  const overallColor = overall >= 7 ? "#34D399" : overall >= 5 ? "#FCD34D" : "#F87171";
+  const circumference = 2 * Math.PI * 26;
 
   const dims = [
     { label: "Business Quality",    key: "business_quality",        color: "#A855F7" },

@@ -104,7 +104,7 @@ export default function PricingModal({ account, onClose, onCheckout }) {
               <button onClick={() => onCheckout("credits", qty)}
                 className="ml-auto text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer"
                 style={{ background: "#A855F7", border: "none", color: "#fff" }}>
-                Buy {qty} credits
+                Buy {qty} credit{qty === 1 ? "" : "s"}
               </button>
             </div>
           </div>

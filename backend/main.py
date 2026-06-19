@@ -16,8 +16,9 @@ from services.verdict_service import compute_verdict
 from services.scoring import compute_quality_scores
 from services.research_service import run_stock_analysis
 from services.auth_service import (
-    verify_jwt, get_account_status, consume_research,
+    verify_jwt, get_account_status, consume_research, refund_research,
     save_history, list_history, get_history_report, get_usage_stats, save_feedback,
+    get_shared_report, acquire_research_lock, release_research_lock,
 )
 from services.stripe_service import create_checkout_session, handle_webhook
 
@@ -47,7 +48,8 @@ def health():
 
 
 @app.get("/search")
-def search(q: str = ""):
+@limiter.limit("60/minute")
+def search(request: Request, q: str = ""):
     q = q.strip()
     if len(q) < 1:
         return []
@@ -62,12 +64,13 @@ def get_me(user=Depends(_get_user)):
 
 
 @app.post("/feedback")
+@limiter.limit("20/hour")
 async def post_feedback(request: Request):
     body = await request.json()
-    ticker  = str(body.get("ticker") or "").strip()
-    verdict = str(body.get("verdict") or "").strip()
-    thumbs  = str(body.get("thumbs") or "").strip()
-    comment = str(body.get("comment") or "").strip()
+    ticker  = str(body.get("ticker") or "").strip()[:20]
+    verdict = str(body.get("verdict") or "").strip()[:40]
+    thumbs  = str(body.get("thumbs") or "").strip()[:10]
+    comment = str(body.get("comment") or "").strip()[:500]
     if not ticker or not thumbs:
         raise HTTPException(status_code=422, detail="ticker and thumbs are required")
     saved = save_feedback(ticker, verdict, thumbs, comment)
@@ -161,68 +164,102 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
     if stock["overview"].get("revenue_ttm") is None and company_name is None:
         raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found")
 
-    # Charge only after we know the ticker is valid
-    allowed, charge_type = consume_research(user.id)
-    if not allowed:
-        raise HTTPException(status_code=402, detail="no_credits")
-
-    valuation_raw = stock.get("valuation_raw", {})
-    valuation = {
-        "pe":        _fill(valuation_raw.get("pe"),        fmp_val.get("pe")),
-        "pb":        _fill(valuation_raw.get("pb"),        fmp_val.get("pb")),
-        "ps":        _fill(valuation_raw.get("ps"),        fmp_val.get("ps")),
-        "ev_ebitda": _fill(valuation_raw.get("ev_ebitda"), fmp_val.get("ev_ebitda")),
-        "sector_pe": get_sector_pe(sector),
-    }
-
-    # Earnings fallback: yfinance earnings_history fails on cloud IPs
-    research_earnings = stock["earnings_history"]
-    if not research_earnings:
-        research_earnings = get_earnings(ticker)
-
-    # Institutional % fallback from FMP ratios-ttm
-    if stock["institutional"].get("pct_held_institutions") is None and fmp_val.get("pct_held_institutions") is not None:
-        stock["institutional"]["pct_held_institutions"] = fmp_val["pct_held_institutions"]
-
-    prism_data = {
-        "ticker":             ticker,
-        "company_name":       company_name,
-        "sector":             sector,
-        "price":              price,
-        "change_pct_1d":      change_pct,
-        "market_cap":         market_cap,
-        "week_52_high":       week_52_high,
-        "week_52_low":        week_52_low,
-        "overview":           stock["overview"],
-        "balance_sheet":      stock["balance_sheet"],
-        "valuation":          valuation,
-        "financials_history": stock.get("financials_history"),
-        "earnings_history":   research_earnings,
-        "institutional":      stock["institutional"],
-    }
+    # Per-(user, ticker) lock: reject a second concurrent run for the same ticker before
+    # charging or doing any work, so a double-submit can't trigger two Claude calls.
+    if not acquire_research_lock(user.id, ticker):
+        raise HTTPException(status_code=409, detail="analysis_in_progress")
 
     try:
-        report = run_stock_analysis(ticker, prism_data)
-    except ValueError as e:
-        print(f"[RESEARCH] {ticker} config error: {e}")
-        raise HTTPException(status_code=503, detail="analysis_unavailable")
-    except Exception as e:
-        print(f"[RESEARCH] {ticker} failed: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail="analysis_failed")
+        # Charge only after we know the ticker is valid and we hold the run lock
+        allowed, charge_type = consume_research(user.id)
+        if not allowed:
+            raise HTTPException(status_code=402, detail="no_credits")
 
-    save_history(user.id, ticker, company_name, report)
-    status = get_account_status(user.id)
-    return {
-        "ticker": ticker,
-        "company_name": company_name,
-        "report": report,
-        "charge_type": charge_type,
-        "account": status,
-    }
+        # Shared-cache: reuse another user's report for this ticker if it's within the
+        # freshness window AND strictly newer than the requester's own existing report.
+        # First-time analysis (no own report) reuses any fresh peer; Re-analyze only reuses
+        # a peer newer than what the user already has, else it does a fresh Claude run.
+        own = get_history_report(user.id, ticker)
+        own_created = own.get("created_at") if own else None
+        shared = get_shared_report(ticker, exclude_user_id=user.id, newer_than=own_created)
+        if shared:
+            report = shared["report"]
+            company_name = shared.get("company_name") or company_name
+            save_history(user.id, ticker, company_name, report,
+                         created_at=shared.get("created_at"), source="shared")
+            status = get_account_status(user.id)
+            return {
+                "ticker": ticker,
+                "company_name": company_name,
+                "report": report,
+                "charge_type": charge_type,
+                "account": status,
+            }
+
+        valuation_raw = stock.get("valuation_raw", {})
+        valuation = {
+            "pe":        _fill(valuation_raw.get("pe"),        fmp_val.get("pe")),
+            "pb":        _fill(valuation_raw.get("pb"),        fmp_val.get("pb")),
+            "ps":        _fill(valuation_raw.get("ps"),        fmp_val.get("ps")),
+            "ev_ebitda": _fill(valuation_raw.get("ev_ebitda"), fmp_val.get("ev_ebitda")),
+            "sector_pe": get_sector_pe(sector, fmp_profile.get("exchange")),
+        }
+
+        # Earnings fallback: yfinance earnings_history fails on cloud IPs
+        research_earnings = stock["earnings_history"]
+        if not research_earnings:
+            research_earnings = get_earnings(ticker)
+
+        # Institutional % fallback from FMP ratios-ttm
+        if stock["institutional"].get("pct_held_institutions") is None and fmp_val.get("pct_held_institutions") is not None:
+            stock["institutional"]["pct_held_institutions"] = fmp_val["pct_held_institutions"]
+
+        prism_data = {
+            "ticker":             ticker,
+            "company_name":       company_name,
+            "sector":             sector,
+            "price":              price,
+            "change_pct_1d":      change_pct,
+            "market_cap":         market_cap,
+            "week_52_high":       week_52_high,
+            "week_52_low":        week_52_low,
+            "overview":           stock["overview"],
+            "balance_sheet":      stock["balance_sheet"],
+            "valuation":          valuation,
+            "financials_history": stock.get("financials_history"),
+            "earnings_history":   research_earnings,
+            "institutional":      stock["institutional"],
+        }
+
+        try:
+            report = run_stock_analysis(ticker, prism_data)
+        except ValueError as e:
+            # Refund: the user was charged above but gets no report.
+            refund_research(user.id, charge_type)
+            print(f"[RESEARCH] {ticker} config error: {e}")
+            raise HTTPException(status_code=503, detail="analysis_unavailable")
+        except HTTPException:
+            raise
+        except Exception as e:
+            refund_research(user.id, charge_type)
+            print(f"[RESEARCH] {ticker} failed: {type(e).__name__}: {e}")
+            raise HTTPException(status_code=500, detail="analysis_failed")
+
+        save_history(user.id, ticker, company_name, report)
+        status = get_account_status(user.id)
+        return {
+            "ticker": ticker,
+            "company_name": company_name,
+            "report": report,
+            "charge_type": charge_type,
+            "account": status,
+        }
+    finally:
+        release_research_lock(user.id, ticker)
 
 
 @app.get("/brief/{ticker}")
-@limiter.limit("10/hour")
+@limiter.limit("40/hour")
 def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
     # Briefs are free and unlimited; the IP rate limiter above guards against abuse.
     ticker = ticker.upper().strip()
@@ -255,7 +292,7 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
     ps = _fill(valuation_raw.get("ps"), fmp_val.get("ps"))
     ev_ebitda = _fill(valuation_raw.get("ev_ebitda"), fmp_val.get("ev_ebitda"))
 
-    sector_pe = get_sector_pe(sector)
+    sector_pe = get_sector_pe(sector, fmp_profile.get("exchange"))
     news = get_news(ticker)
 
     # Earnings fallback: yfinance earnings_history fails on cloud IPs
@@ -295,7 +332,7 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         "balance_sheet": stock["balance_sheet"],
         "valuation": valuation,
         "earnings_history": earnings_history,
-        "market_cap": stock["market_cap"],
+        "market_cap": market_cap,  # FMP-filled value, consistent with what the card displays
     })
 
     return {
