@@ -21,7 +21,7 @@ function SectionTitle({ children, accent = "purple" }) {
   );
 }
 
-export default function LeftPanel({ data, apiBase }) {
+export default function LeftPanel({ data, apiBase, onOpenResearch }) {
   const v  = data.verdict;
   const vc = VC[v?.label] || VC["FAIR VALUE"];
 
@@ -54,6 +54,18 @@ export default function LeftPanel({ data, apiBase }) {
             </div>
           </div>
 
+          {onOpenResearch && (
+            <button
+              onClick={onOpenResearch}
+              className="mt-3 text-xs font-medium cursor-pointer transition-opacity duration-200"
+              style={{ color: "#A855F7", opacity: 0.85 }}
+              onMouseEnter={e => e.currentTarget.style.opacity = 1}
+              onMouseLeave={e => e.currentTarget.style.opacity = 0.85}
+            >
+              Read the full breakdown in Deep Research →
+            </button>
+          )}
+
           {/* Feedback */}
           <div className="mt-4">
             <FeedbackWidget ticker={data.ticker} verdict={v.label} apiBase={apiBase} />
@@ -81,21 +93,20 @@ export default function LeftPanel({ data, apiBase }) {
               <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                 <th className="text-left px-4 py-2.5 text-xs font-normal" style={{ color: "#3D5068" }}>Metric</th>
                 <th className="text-right px-4 py-2.5 text-xs font-normal" style={{ color: "#3D5068" }}>Value</th>
-                {data.valuation?.sector_pe != null && (
-                  <th className="text-right px-4 py-2.5 text-xs font-semibold" style={{ color: "#FCD34D" }}>
-                    vs Sector {fmtN(data.valuation.sector_pe)}
-                  </th>
-                )}
               </tr>
             </thead>
             <tbody>
-              {[["P/E", data.valuation?.pe], ["P/B", data.valuation?.pb], ["P/S", data.valuation?.ps], ["EV/EBITDA", data.valuation?.ev_ebitda]].map(([label, val]) => (
+              {[
+                ["P/E", data.valuation?.pe],
+                ["P/B", data.valuation?.pb],
+                ["P/S", data.valuation?.ps],
+                ["EV/EBITDA", data.valuation?.ev_ebitda],
+              ].map(([label, val]) => (
                 <tr key={label} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
                   onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.04)"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   <td className="px-4 py-2.5 text-sm" style={{ color: "#64748B" }}>{label}</td>
                   <td className="px-4 py-2.5 text-right font-semibold text-white" style={{ fontFamily: "'Fira Code', monospace" }}>{fmtN(val)}</td>
-                  {data.valuation?.sector_pe != null && <td />}
                 </tr>
               ))}
             </tbody>

@@ -328,7 +328,7 @@ export default function App() {
                       <BriefCard data={data} />
                     </div>
                     <div className="lg:w-[400px] xl:w-[440px] shrink-0 lg:sticky lg:top-6">
-                      <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} />
+                      <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} onOpenResearch={() => setActiveTab("research")} />
                     </div>
                   </div>
                 ) : (

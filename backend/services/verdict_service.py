@@ -102,7 +102,7 @@ def compute_verdict(pe, sector_pe, fcf_ttm, de_ratio, eps_ttm,
                       f"(FCF growth: {growth_used*100:.1f}%, WACC: {WACC*100:.0f}%).")
 
         bull = _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps, financials_history)
-        bear = _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash_)
+        bear = _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash_, ps, eps_ttm, financials_history)
         return {
             "label": label,
             "reason": reason,
@@ -160,7 +160,7 @@ def compute_verdict(pe, sector_pe, fcf_ttm, de_ratio, eps_ttm,
         "margin_of_safety": None,
         "dcf_inputs": None,
         "bull_case": _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps, financials_history),
-        "bear_case": _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash),
+        "bear_case": _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash, ps, eps_ttm, financials_history),
     }
 
 
@@ -179,7 +179,7 @@ def _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps=None, financials_history=No
     return "Early-stage growth; valuation depends on execution"
 
 
-def _worst_metric(de_ratio, pe, sector_pe, fcf_ttm=None, cash=None):
+def _worst_metric(de_ratio, pe, sector_pe, fcf_ttm=None, cash=None, ps=None, eps_ttm=None, financials_history=None):
     if fcf_ttm is not None and fcf_ttm < 0:
         burn = abs(fcf_ttm)
         if cash is not None and cash > 0:
@@ -192,4 +192,20 @@ def _worst_metric(de_ratio, pe, sector_pe, fcf_ttm=None, cash=None):
         return f"P/E premium over sector ({pe:.1f} vs {sector_pe:.1f})"
     if de_ratio is not None and de_ratio > 1.0:
         return f"Elevated D/E ratio of {de_ratio:.1f}"
-    return "No major red flags in available data"
+    if eps_ttm is not None and eps_ttm < 0:
+        return f"Negative EPS of {eps_ttm:.2f} — not yet profitable on a GAAP basis"
+
+    rev_growth = _estimate_revenue_growth(financials_history)
+    if rev_growth is not None and rev_growth < 0:
+        return f"Revenue declined {abs(rev_growth)*100:.0f}% YoY"
+
+    if ps is not None and ps > 15 and not (fcf_ttm is not None and fcf_ttm > 0):
+        return f"P/S of {ps:.1f}x is rich for a company without consistently positive free cash flow"
+    if pe is not None and sector_pe is None and pe > 35:
+        return f"P/E of {pe:.1f} is high in absolute terms; no sector benchmark available to confirm it's justified"
+    if rev_growth is not None and rev_growth < 0.05:
+        return f"Revenue growth of just {rev_growth*100:.1f}% YoY leaves little cushion if conditions soften"
+    if de_ratio is not None and de_ratio > 0.5:
+        return f"Carries moderate leverage (D/E {de_ratio:.1f}) that amplifies downside in a slowdown"
+
+    return "Valuation and leverage both look reasonable here — main risk is broader market or macro exposure rather than anything company-specific"
