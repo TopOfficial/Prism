@@ -51,6 +51,8 @@ def create_checkout_session(user_id: str, user_email: str, plan: str, quantity: 
             mode="payment",
             success_url=f"{frontend_url}?purchased=1",
             cancel_url=frontend_url,
+            # Stripe emails a payment receipt to this address on success.
+            payment_intent_data={"receipt_email": user_email},
             metadata={"user_id": user_id, "kind": "credits", "credits": str(pack["credits"])},
         )
         return session.url
@@ -66,6 +68,8 @@ def create_checkout_session(user_id: str, user_email: str, plan: str, quantity: 
             mode="payment",
             success_url=f"{frontend_url}?purchased=1",
             cancel_url=frontend_url,
+            # Stripe emails a payment receipt to this address on success.
+            payment_intent_data={"receipt_email": user_email},
             metadata={"user_id": user_id, "kind": "credits", "credits": str(qty)},
         )
         return session.url
