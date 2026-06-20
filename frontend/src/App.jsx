@@ -228,7 +228,7 @@ export default function App() {
               width="52"
               height="52"
               className="shrink-0"
-              style={{ filter: "drop-shadow(0 0 14px rgba(168,85,247,0.55))" }}
+              style={{ filter: "drop-shadow(0 0 14px rgba(168,85,247,0.55))", transform: "translateY(-8px)" }}
             />
             <div>
               <h1 className="text-3xl sm:text-4xl"
