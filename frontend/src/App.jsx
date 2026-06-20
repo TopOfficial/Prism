@@ -221,12 +221,22 @@ export default function App() {
 
         {/* Header */}
         <header className="flex items-start justify-between mb-10 animate-fade-in">
-          <div>
-            <h1 className="text-3xl sm:text-4xl"
-              style={{ fontFamily: "'Cinzel', serif", fontWeight: 500, letterSpacing: "0.18em", color: "#A855F7", textShadow: "0 0 28px rgba(168,85,247,0.6)", textTransform: "uppercase" }}>
-              Prism
-            </h1>
-            <p className="text-sm mt-1" style={{ color: "#475569" }}>Investment intelligence, instantly.</p>
+          <div className="flex items-center gap-3">
+            <img
+              src="/prism-logo.png"
+              alt="Prism logo"
+              width="52"
+              height="52"
+              className="shrink-0"
+              style={{ filter: "drop-shadow(0 0 14px rgba(168,85,247,0.55))" }}
+            />
+            <div>
+              <h1 className="text-3xl sm:text-4xl"
+                style={{ fontFamily: "'Cinzel', serif", fontWeight: 500, letterSpacing: "0.18em", color: "#A855F7", textShadow: "0 0 28px rgba(168,85,247,0.6)", textTransform: "uppercase" }}>
+                Prism
+              </h1>
+              <p className="text-sm mt-1" style={{ color: "#475569" }}>Investment intelligence, instantly.</p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 mt-1">
@@ -369,6 +379,11 @@ export default function App() {
           <p className="text-xs">
             Prism is for informational purposes only, not financial advice.
             Investing involves risk, including loss of principal. Use at your own risk; verify independently before making any investment decision.
+          </p>
+          <p className="text-xs mt-2">
+            <a href="/terms.html" style={{ color: "#4E6278", textDecoration: "underline" }}>Terms of Service</a>
+            <span className="mx-2">·</span>
+            <a href="/privacy.html" style={{ color: "#4E6278", textDecoration: "underline" }}>Privacy Policy</a>
           </p>
         </footer>
       </div>
