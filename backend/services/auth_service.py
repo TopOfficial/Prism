@@ -290,6 +290,32 @@ def get_usage_stats() -> dict:
     }
 
 
+def delete_account(user_id: str) -> bool:
+    """Permanently delete a user: cancel any active Stripe subscription, clean up the user's
+    run locks, then delete the auth user (cascades to public.users + research_history via FK
+    `on delete cascade`). Returns True on success."""
+    try:
+        record = get_user_record(user_id)
+        customer_id = (record or {}).get("stripe_customer_id")
+        if customer_id:
+            # Imported lazily to avoid a circular import (stripe_service imports from this module).
+            from services.stripe_service import cancel_customer_subscriptions
+            cancel_customer_subscriptions(customer_id)
+
+        # research_locks has no FK cascade — remove the user's locks explicitly.
+        try:
+            _sb().table("research_locks").delete().eq("user_id", user_id).execute()
+        except Exception:
+            pass
+
+        _sb().auth.admin.delete_user(user_id)
+        print(f"[AUTH] delete_account: {user_id} deleted")
+        return True
+    except Exception as e:
+        print(f"[AUTH] delete_account failed for {user_id}: {e}")
+        return False
+
+
 def get_history_report(user_id: str, ticker: str) -> dict | None:
     """Return a single saved report for this user + ticker, or None."""
     try:

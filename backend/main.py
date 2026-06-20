@@ -18,7 +18,7 @@ from services.research_service import run_stock_analysis
 from services.auth_service import (
     verify_jwt, get_account_status, consume_research, refund_research,
     save_history, list_history, get_history_report, get_usage_stats, save_feedback,
-    get_shared_report, acquire_research_lock, release_research_lock,
+    get_shared_report, acquire_research_lock, release_research_lock, delete_account,
 )
 from services.stripe_service import create_checkout_session, handle_webhook
 
@@ -61,6 +61,16 @@ def get_me(user=Depends(_get_user)):
     if not user:
         return {"is_admin": False, "is_subscriber": False, "credits": 0, "free_research_available": False, "next_free_research_at": None}
     return get_account_status(user.id)
+
+
+@app.delete("/me")
+def delete_me(user=Depends(_get_user)):
+    """Permanently delete the signed-in user's account and data."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    if not delete_account(user.id):
+        raise HTTPException(status_code=500, detail="delete_failed")
+    return {"ok": True}
 
 
 @app.post("/feedback")

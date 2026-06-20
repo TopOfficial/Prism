@@ -259,6 +259,33 @@ def test_acquire_lock_fails_open_on_infra_error(monkeypatch):
 
 # ── #3 feedback comment cap ──────────────────────────────────────────────────
 
+def test_delete_me_requires_auth():
+    main.app.dependency_overrides.clear()
+    client = TestClient(main.app)
+    r = client.request("DELETE", "/me")  # no auth
+    assert r.status_code == 401
+
+
+def test_delete_me_calls_delete_account(monkeypatch):
+    called = {}
+    monkeypatch.setattr(main, "delete_account", lambda uid: called.setdefault("uid", uid) or True)
+    main.app.dependency_overrides[main._get_user] = lambda: _FakeUser()
+    client = TestClient(main.app)
+    r = client.request("DELETE", "/me")
+    main.app.dependency_overrides.clear()
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert called["uid"] == "u1"
+
+
+def test_delete_me_500_on_failure(monkeypatch):
+    monkeypatch.setattr(main, "delete_account", lambda uid: False)
+    main.app.dependency_overrides[main._get_user] = lambda: _FakeUser()
+    client = TestClient(main.app)
+    r = client.request("DELETE", "/me")
+    main.app.dependency_overrides.clear()
+    assert r.status_code == 500
+
+
 def test_feedback_caps_comment_length(monkeypatch):
     captured = {}
     def fake_save(ticker, verdict, thumbs, comment):

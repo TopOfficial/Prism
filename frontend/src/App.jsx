@@ -9,6 +9,7 @@ import HelpModal from "./components/HelpModal";
 import AuthModal from "./components/AuthModal";
 import ResearchPanel from "./components/ResearchPanel";
 import PricingModal from "./components/PricingModal";
+import ProfileModal from "./components/ProfileModal";
 import HistorySidebar from "./components/HistorySidebar";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -41,6 +42,7 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [user, setUser] = useState(null);
   const [account, setAccount] = useState(loadCachedAccount);
   const [history, setHistory] = useState([]);
@@ -154,10 +156,28 @@ export default function App() {
   }
 
   async function handleSignOut() {
+    setShowProfile(false);
     setAccountCached(EMPTY_ACCOUNT);
     setHistory([]);
     setActiveTab("brief");
     await supabase.auth.signOut();
+  }
+
+  // Permanently delete the account, then sign out locally. Returns success to the modal.
+  async function handleDeleteAccount() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return false;
+      const res = await fetch(`${API}/me`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return false;
+      await handleSignOut();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function handleUpgrade() {
@@ -251,7 +271,7 @@ export default function App() {
                     {account.credits > 0 ? `${account.credits} credits` : "Upgrade"}
                   </button>
                 )}
-                <button onClick={handleSignOut}
+                <button onClick={() => setShowProfile(true)}
                   className="text-xs px-3 py-2 rounded-lg cursor-pointer transition-all duration-200"
                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#4E6278" }}
                   onMouseEnter={e => e.currentTarget.style.color = "#64748B"}
@@ -259,7 +279,7 @@ export default function App() {
                   {user.email?.split("@")[0]}
                   {account.is_subscriber && <span style={{ color: "#A855F7", marginLeft: 6 }}>Pro</span>}
                   {account.is_admin && <span style={{ color: "#FCD34D", marginLeft: 6 }}>Admin</span>}
-                  {"  ·  Sign Out"}
+                  {"  ·  Profile"}
                 </button>
               </>
             ) : (
@@ -391,6 +411,15 @@ export default function App() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       {showPricing && <PricingModal account={account} onClose={() => setShowPricing(false)} onCheckout={startCheckout} />}
+      {showProfile && user && (
+        <ProfileModal
+          user={user}
+          account={account}
+          onClose={() => setShowProfile(false)}
+          onSignOut={handleSignOut}
+          onDeleteAccount={handleDeleteAccount}
+        />
+      )}
       <Analytics />
     </div>
   );

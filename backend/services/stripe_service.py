@@ -77,6 +77,24 @@ def create_checkout_session(user_id: str, user_email: str, plan: str, quantity: 
     raise ValueError(f"Unknown plan '{plan}'.")
 
 
+def cancel_customer_subscriptions(customer_id: str) -> None:
+    """Cancel all active subscriptions for a Stripe customer — used on account deletion so a
+    removed account can't keep getting billed. Best-effort; logs and swallows errors."""
+    if not customer_id:
+        return
+    try:
+        s = _get_stripe()
+        subs = s.Subscription.list(customer=customer_id, status="active", limit=100)
+        for sub in subs.auto_paging_iter():
+            try:
+                s.Subscription.cancel(sub.id)
+                print(f"[STRIPE] cancelled subscription {sub.id} for {customer_id}")
+            except Exception as e:
+                print(f"[STRIPE] cancel sub {sub.id} failed: {e}")
+    except Exception as e:
+        print(f"[STRIPE] cancel_customer_subscriptions failed for {customer_id}: {e}")
+
+
 def handle_webhook(payload: bytes, sig_header: str | None) -> dict:
     s = _get_stripe()
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
