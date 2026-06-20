@@ -77,6 +77,14 @@ def create_checkout_session(user_id: str, user_email: str, plan: str, quantity: 
     raise ValueError(f"Unknown plan '{plan}'.")
 
 
+def create_portal_session(customer_id: str, return_url: str) -> str:
+    """Create a Stripe Billing (Customer) Portal session so the user can manage/cancel their
+    subscription, update payment method, and view invoices. Returns the portal URL."""
+    s = _get_stripe()
+    session = s.billing_portal.Session.create(customer=customer_id, return_url=return_url)
+    return session.url
+
+
 def cancel_customer_subscriptions(customer_id: str) -> None:
     """Cancel all active subscriptions for a Stripe customer — used on account deletion so a
     removed account can't keep getting billed. Best-effort; logs and swallows errors."""

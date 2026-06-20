@@ -163,6 +163,22 @@ export default function App() {
     await supabase.auth.signOut();
   }
 
+  // Open the Stripe Billing Portal (manage/cancel subscription, invoices).
+  async function openBillingPortal() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${API}/create-portal-session`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const body = await res.json();
+      if (body.portal_url) window.location.href = body.portal_url;
+    } catch (e) {
+      console.error("Portal error:", e);
+    }
+  }
+
   // Permanently delete the account, then sign out locally. Returns success to the modal.
   async function handleDeleteAccount() {
     try {
@@ -418,6 +434,7 @@ export default function App() {
           onClose={() => setShowProfile(false)}
           onSignOut={handleSignOut}
           onDeleteAccount={handleDeleteAccount}
+          onManageSubscription={openBillingPortal}
         />
       )}
       <Analytics />

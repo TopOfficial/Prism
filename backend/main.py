@@ -19,8 +19,9 @@ from services.auth_service import (
     verify_jwt, get_account_status, consume_research, refund_research,
     save_history, list_history, get_history_report, get_usage_stats, save_feedback,
     get_shared_report, acquire_research_lock, release_research_lock, delete_account,
+    get_user_record,
 )
-from services.stripe_service import create_checkout_session, handle_webhook
+from services.stripe_service import create_checkout_session, handle_webhook, create_portal_session
 
 security = HTTPBearer(auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
@@ -101,6 +102,23 @@ async def checkout_session(request: Request, user=Depends(_get_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {e}")
     return {"checkout_url": url}
+
+
+@app.post("/create-portal-session")
+def portal_session(user=Depends(_get_user)):
+    """Stripe Billing Portal so the user can manage/cancel their subscription."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    record = get_user_record(user.id)
+    customer_id = (record or {}).get("stripe_customer_id")
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="no_customer")
+    return_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+    try:
+        url = create_portal_session(customer_id, return_url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stripe error: {e}")
+    return {"portal_url": url}
 
 
 @app.post("/webhook")
