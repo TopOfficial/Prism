@@ -19,6 +19,35 @@ from fastapi.testclient import TestClient
 import main
 from services import fmp_service
 from services import auth_service
+from services.yfinance_service import currency_for_ticker
+from services.verdict_service import compute_verdict
+
+
+# ── Thai (and other) currency derivation ─────────────────────────────────────
+
+SET50 = ["ADVANC", "AOT", "BBL", "BDMS", "BEM", "BH", "CPALL", "CPF", "CPN", "CRC",
+         "DELTA", "EA", "GPSC", "GULF", "INTUCH", "IVL", "KBANK", "KTB", "PTT", "SCC"]
+
+
+def test_set50_tickers_derive_thb():
+    # When the data source omits currency, .BK tickers must resolve to THB (the bug was USD).
+    for t in SET50:
+        assert currency_for_ticker(f"{t}.BK", None) == "THB", t
+
+
+def test_currency_prefers_api_value_when_present():
+    # If the API does return a currency, trust it over the suffix guess.
+    assert currency_for_ticker("CTW.BK", "THB") == "THB"
+    assert currency_for_ticker("AAPL", None) == "USD"          # US, no suffix
+    assert currency_for_ticker("BARC.L", None) == "GBP"
+    assert currency_for_ticker("7203.T", None) == "JPY"
+
+
+def test_verdict_uses_currency_symbol():
+    # A negative-FCF Thai stock should report cash burn in ฿, not $.
+    v = compute_verdict(pe=None, sector_pe=None, fcf_ttm=-6.7e8, de_ratio=0.4, eps_ttm=0.58,
+                        cash=5e8, price=7.3, cur="฿")
+    assert "฿" in v["bear_case"] and "$" not in v["bear_case"]
 
 
 # ── #4 get_sector_pe matching ────────────────────────────────────────────────

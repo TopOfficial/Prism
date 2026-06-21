@@ -3,6 +3,28 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 
+# yfinance ticker suffix → trading currency. Used as a fallback when the API doesn't
+# return a currency (common on cloud IPs), so e.g. CTW.BK shows THB instead of USD.
+_CCY_BY_SUFFIX = {
+    "BK": "THB", "L": "GBP", "T": "JPY", "HK": "HKD", "SS": "CNY", "SZ": "CNY",
+    "NS": "INR", "BO": "INR", "DE": "EUR", "PA": "EUR", "AS": "EUR", "MI": "EUR",
+    "MC": "EUR", "BR": "EUR", "HE": "EUR", "VI": "EUR", "LS": "EUR", "IR": "EUR",
+    "TO": "CAD", "V": "CAD", "AX": "AUD", "NZ": "NZD", "KS": "KRW", "KQ": "KRW",
+    "TW": "TWD", "TWO": "TWD", "SI": "SGD", "SW": "CHF", "ST": "SEK", "OL": "NOK",
+    "CO": "DKK", "SA": "BRL", "MX": "MXN", "JK": "IDR", "KL": "MYR", "PS": "PHP",
+    "JO": "ZAR", "TA": "ILS", "IS": "TRY", "ME": "RUB",
+}
+
+
+def currency_for_ticker(ticker: str, info_currency: str | None) -> str:
+    """Trust the API's currency when present; otherwise derive from the ticker suffix
+    (e.g. '.BK' → THB), defaulting to USD for US/suffixless tickers."""
+    if info_currency:
+        return info_currency
+    suffix = ticker.rsplit(".", 1)[-1].upper() if "." in ticker else ""
+    return _CCY_BY_SUFFIX.get(suffix, "USD")
+
+
 def _safe(fn):
     try:
         return fn()
@@ -362,7 +384,7 @@ def get_stock_data(ticker: str) -> dict:
         "ticker": ticker.upper(),
         "company_name": info.get("longName") or info.get("shortName"),
         "sector": info.get("sector"),
-        "currency": info.get("currency") or _fi("currency") or "USD",
+        "currency": currency_for_ticker(ticker, info.get("currency") or _fi("currency")),
         "price": float(price) if price is not None else None,
         "change_pct_1d": float(change_pct) if change_pct is not None else None,
         "week_52_high": info.get("fiftyTwoWeekHigh") or _fi("year_high"),

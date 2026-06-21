@@ -67,7 +67,7 @@ def _estimate_revenue_growth(financials_history: dict | None) -> float | None:
 
 def compute_verdict(pe, sector_pe, fcf_ttm, de_ratio, eps_ttm,
                     financials_history=None, total_debt=None, cash=None,
-                    shares_outstanding=None, price=None, ps=None):
+                    shares_outstanding=None, price=None, ps=None, cur="$"):
 
     # --- DCF path: requires positive FCF, price, and shares ---
     dcf_result = None
@@ -87,22 +87,22 @@ def compute_verdict(pe, sector_pe, fcf_ttm, de_ratio, eps_ttm,
 
         if margin >= UNDERVALUED_THRESHOLD:
             label = "UNDERVALUED"
-            reason = (f"DCF intrinsic value ${intrinsic:,.2f} is "
-                      f"{margin*100:.1f}% above market price ${price:,.2f} "
+            reason = (f"DCF intrinsic value {cur}{intrinsic:,.2f} is "
+                      f"{margin*100:.1f}% above market price {cur}{price:,.2f} "
                       f"(FCF growth: {growth_used*100:.1f}%, WACC: {WACC*100:.0f}%).")
         elif margin <= OVERVALUED_THRESHOLD:
             label = "OVERVALUED"
-            reason = (f"Market price ${price:,.2f} is "
-                      f"{abs(margin)*100:.1f}% above DCF intrinsic value ${intrinsic:,.2f} "
+            reason = (f"Market price {cur}{price:,.2f} is "
+                      f"{abs(margin)*100:.1f}% above DCF intrinsic value {cur}{intrinsic:,.2f} "
                       f"(FCF growth: {growth_used*100:.1f}%, WACC: {WACC*100:.0f}%).")
         else:
             label = "FAIR VALUE"
-            reason = (f"Market price ${price:,.2f} is within ±20% of DCF intrinsic value "
-                      f"${intrinsic:,.2f} "
+            reason = (f"Market price {cur}{price:,.2f} is within ±20% of DCF intrinsic value "
+                      f"{cur}{intrinsic:,.2f} "
                       f"(FCF growth: {growth_used*100:.1f}%, WACC: {WACC*100:.0f}%).")
 
-        bull = _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps, financials_history)
-        bear = _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash_, ps, eps_ttm, financials_history)
+        bull = _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps, financials_history, cur)
+        bear = _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash_, ps, eps_ttm, financials_history, cur)
         return {
             "label": label,
             "reason": reason,
@@ -134,7 +134,7 @@ def compute_verdict(pe, sector_pe, fcf_ttm, de_ratio, eps_ttm,
     elif ps is not None:
         rev_growth = _estimate_revenue_growth(financials_history)
         burn = abs(fcf_ttm) if fcf_ttm is not None and fcf_ttm < 0 else None
-        burn_str = f" Cash burn: ${burn/1e6:.0f}M/yr." if burn else ""
+        burn_str = f" Cash burn: {cur}{burn/1e6:.0f}M/yr." if burn else ""
         growth_str = f" Revenue growth: {rev_growth*100:.0f}%." if rev_growth is not None else ""
 
         if ps > 30:
@@ -159,16 +159,16 @@ def compute_verdict(pe, sector_pe, fcf_ttm, de_ratio, eps_ttm,
         "intrinsic_value": None,
         "margin_of_safety": None,
         "dcf_inputs": None,
-        "bull_case": _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps, financials_history),
-        "bear_case": _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash, ps, eps_ttm, financials_history),
+        "bull_case": _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps, financials_history, cur),
+        "bear_case": _worst_metric(de_ratio, pe, sector_pe, fcf_ttm, cash, ps, eps_ttm, financials_history, cur),
     }
 
 
-def _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps=None, financials_history=None):
+def _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps=None, financials_history=None, cur="$"):
     if pe is not None and sector_pe is not None and pe < sector_pe:
         return f"Trading below sector P/E ({pe:.1f} vs {sector_pe:.1f})"
     if fcf_ttm is not None and fcf_ttm > 0:
-        return f"FCF positive at ${fcf_ttm / 1e9:.2f}B"
+        return f"FCF positive at {cur}{fcf_ttm / 1e9:.2f}B"
     if eps_ttm is not None and eps_ttm > 0:
         return f"EPS positive at {eps_ttm:.2f}"
     rev_growth = _estimate_revenue_growth(financials_history)
@@ -179,13 +179,13 @@ def _best_metric(pe, sector_pe, fcf_ttm, eps_ttm, ps=None, financials_history=No
     return "Early-stage growth; valuation depends on execution"
 
 
-def _worst_metric(de_ratio, pe, sector_pe, fcf_ttm=None, cash=None, ps=None, eps_ttm=None, financials_history=None):
+def _worst_metric(de_ratio, pe, sector_pe, fcf_ttm=None, cash=None, ps=None, eps_ttm=None, financials_history=None, cur="$"):
     if fcf_ttm is not None and fcf_ttm < 0:
         burn = abs(fcf_ttm)
         if cash is not None and cash > 0:
             runway_yrs = cash / burn
-            return f"Cash burn ${burn/1e6:.0f}M/yr — {runway_yrs:.1f}yr runway at current rate"
-        return f"Negative FCF (${fcf_ttm/1e6:.0f}M) with no clear profitability timeline"
+            return f"Cash burn {cur}{burn/1e6:.0f}M/yr — {runway_yrs:.1f}yr runway at current rate"
+        return f"Negative FCF ({cur}{fcf_ttm/1e6:.0f}M) with no clear profitability timeline"
     if de_ratio is not None and de_ratio > 2.0:
         return f"High D/E ratio of {de_ratio:.1f}"
     if pe is not None and sector_pe is not None and pe > sector_pe * 1.2:

@@ -1,5 +1,13 @@
 import FinancialsHistory from "./FinancialsHistory";
 
+const CCY_SYMBOL = {
+  USD: "$", THB: "฿", GBP: "£", EUR: "€", JPY: "¥", CNY: "¥", HKD: "HK$",
+  INR: "₹", CAD: "C$", AUD: "A$", NZD: "NZ$", KRW: "₩", TWD: "NT$", SGD: "S$",
+  CHF: "CHF ", SEK: "kr", NOK: "kr", DKK: "kr", BRL: "R$", MXN: "MX$",
+  IDR: "Rp", MYR: "RM", PHP: "₱", ZAR: "R",
+};
+const sym = (currency) => (currency ? (CCY_SYMBOL[currency.toUpperCase()] || `${currency.toUpperCase()} `) : "$");
+
 const fmtB = (n) => {
   if (n == null) return "—";
   const abs = Math.abs(n);
@@ -47,7 +55,7 @@ function Metric({ label, value, accent }) {
   );
 }
 
-function RangeBar({ price, low, high }) {
+function RangeBar({ price, low, high, ccy }) {
   if (price == null || low == null || high == null || high === low) return null;
   const pct = Math.min(100, Math.max(0, ((price - low) / (high - low)) * 100));
   return (
@@ -57,9 +65,9 @@ function RangeBar({ price, low, high }) {
         <div style={{ position: "absolute", left: `${pct}%`, top: "50%", transform: "translate(-50%,-50%)", width: 12, height: 12, borderRadius: "50%", background: "#A855F7", boxShadow: "0 0 12px rgba(168,85,247,0.9)", border: "2px solid #070B14" }} />
       </div>
       <div className="flex justify-between mt-1.5">
-        <span className="text-xs" style={{ color: "#3D5068", fontFamily: "'Fira Code', monospace" }}>${fmtN(low)}</span>
+        <span className="text-xs" style={{ color: "#3D5068", fontFamily: "'Fira Code', monospace" }}>{ccy}{fmtN(low)}</span>
         <span className="text-xs" style={{ color: "#3D5068" }}>52-wk range</span>
-        <span className="text-xs" style={{ color: "#3D5068", fontFamily: "'Fira Code', monospace" }}>${fmtN(high)}</span>
+        <span className="text-xs" style={{ color: "#3D5068", fontFamily: "'Fira Code', monospace" }}>{ccy}{fmtN(high)}</span>
       </div>
     </div>
   );
@@ -73,6 +81,7 @@ function sentimentColor(s) {
 
 export default function BriefCard({ data }) {
   const isUp = (data.change_pct_1d ?? 0) >= 0;
+  const ccy = sym(data.currency);
 
   return (
     <div className="flex flex-col gap-4">
@@ -99,14 +108,14 @@ export default function BriefCard({ data }) {
             </div>
             <div className="text-right shrink-0">
               <p className="font-bold" style={{ fontFamily: "'Fira Code', monospace", fontSize: 30, color: "#F0F4FF", letterSpacing: "-0.02em" }}>
-                ${fmtN(data.price)}
+                {ccy}{fmtN(data.price)}
               </p>
               <p className="text-sm font-semibold mt-0.5" style={{ fontFamily: "'Fira Code', monospace", color: isUp ? "#34D399" : "#F87171", textShadow: isUp ? "0 0 10px rgba(52,211,153,0.6)" : "0 0 10px rgba(248,113,113,0.6)" }}>
                 {fmtPct(data.change_pct_1d)} today
               </p>
             </div>
           </div>
-          <RangeBar price={data.price} low={data.week_52_low} high={data.week_52_high} />
+          <RangeBar price={data.price} low={data.week_52_low} high={data.week_52_high} ccy={ccy} />
           {data.market_cap != null && (
             <p className="text-xs mt-3" style={{ color: "#3D5068" }}>
               Market cap: <span style={{ color: "#64748B" }}>{fmtB(data.market_cap)}</span>
@@ -121,7 +130,7 @@ export default function BriefCard({ data }) {
           <SectionTitle>Overview</SectionTitle>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             <Metric label="Revenue TTM" value={fmtB(data.overview?.revenue_ttm)} />
-            <Metric label="EPS TTM"     value={data.overview?.eps_ttm == null ? "—" : `$${fmtN(data.overview.eps_ttm)}`} />
+            <Metric label="EPS TTM"     value={data.overview?.eps_ttm == null ? "—" : `${ccy}${fmtN(data.overview.eps_ttm)}`} />
             <Metric label="Net Margin"  value={data.overview?.net_margin_pct == null ? "—" : `${fmtN(data.overview.net_margin_pct)}%`} />
             <Metric label="FCF TTM"     value={fmtB(data.overview?.fcf_ttm)}       accent="purple" />
             <Metric label="ROIC"        value={data.overview?.roic_ttm == null ? "—" : `${fmtN(data.overview.roic_ttm)}%`} accent="yellow" />
@@ -172,8 +181,8 @@ export default function BriefCard({ data }) {
                       onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.04)"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <td className="px-4 py-2.5 text-xs" style={{ color: "#4E6278", fontFamily: "'Fira Code', monospace" }}>{row.quarter || "—"}</td>
-                      <td className="px-4 py-2.5" style={{ color: "#64748B", fontFamily: "'Fira Code', monospace" }}>{row.eps_estimate == null ? "—" : `$${fmtN(row.eps_estimate)}`}</td>
-                      <td className="px-4 py-2.5 font-semibold text-white" style={{ fontFamily: "'Fira Code', monospace" }}>{row.eps_actual == null ? "—" : `$${fmtN(row.eps_actual)}`}</td>
+                      <td className="px-4 py-2.5" style={{ color: "#64748B", fontFamily: "'Fira Code', monospace" }}>{row.eps_estimate == null ? "—" : `${ccy}${fmtN(row.eps_estimate)}`}</td>
+                      <td className="px-4 py-2.5 font-semibold text-white" style={{ fontFamily: "'Fira Code', monospace" }}>{row.eps_actual == null ? "—" : `${ccy}${fmtN(row.eps_actual)}`}</td>
                       <td className="px-4 py-2.5">
                         {row.beat == null
                           ? <span className="text-xs" style={{ color: "#3D5068" }}>—</span>

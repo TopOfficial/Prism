@@ -43,6 +43,21 @@ def _get_user(creds: HTTPAuthorizationCredentials = Depends(security)):
     return verify_jwt(creds.credentials)
 
 
+_CCY_SYMBOL = {
+    "USD": "$", "THB": "฿", "GBP": "£", "EUR": "€", "JPY": "¥", "CNY": "¥",
+    "HKD": "HK$", "INR": "₹", "CAD": "C$", "AUD": "A$", "NZD": "NZ$", "KRW": "₩",
+    "TWD": "NT$", "SGD": "S$", "CHF": "CHF ", "SEK": "kr", "NOK": "kr", "DKK": "kr",
+    "BRL": "R$", "MXN": "MX$", "IDR": "Rp", "MYR": "RM", "PHP": "₱", "ZAR": "R",
+}
+
+
+def _ccy_symbol(currency: str | None) -> str:
+    """Display symbol for a currency code; falls back to '<CODE> ' for unmapped ones."""
+    if not currency:
+        return "$"
+    return _CCY_SYMBOL.get(currency.upper(), f"{currency.upper()} ")
+
+
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
@@ -344,6 +359,7 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         shares_outstanding=shares_outstanding,
         price=price,
         ps=ps,
+        cur=_ccy_symbol(stock["currency"]),
     )
 
     valuation = {
