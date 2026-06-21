@@ -35,12 +35,18 @@ def test_set50_tickers_derive_thb():
         assert currency_for_ticker(f"{t}.BK", None) == "THB", t
 
 
-def test_currency_prefers_api_value_when_present():
-    # If the API does return a currency, trust it over the suffix guess.
+def test_known_suffix_overrides_wrong_api_currency():
+    # A known exchange suffix wins even if the API reports a wrong/stale currency
+    # (e.g. delisted INTUCH.BK returning USD must still resolve to THB).
+    assert currency_for_ticker("INTUCH.BK", "USD") == "THB"
     assert currency_for_ticker("CTW.BK", "THB") == "THB"
+
+
+def test_currency_uses_api_then_usd_for_unknown_suffix():
     assert currency_for_ticker("AAPL", None) == "USD"          # US, no suffix
     assert currency_for_ticker("BARC.L", None) == "GBP"
     assert currency_for_ticker("7203.T", None) == "JPY"
+    assert currency_for_ticker("FOO.XYZ", "EUR") == "EUR"      # unknown suffix → trust API
 
 
 def test_verdict_uses_currency_symbol():

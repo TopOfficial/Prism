@@ -17,12 +17,14 @@ _CCY_BY_SUFFIX = {
 
 
 def currency_for_ticker(ticker: str, info_currency: str | None) -> str:
-    """Trust the API's currency when present; otherwise derive from the ticker suffix
-    (e.g. '.BK' → THB), defaulting to USD for US/suffixless tickers."""
-    if info_currency:
-        return info_currency
+    """Resolve the trading currency. A known exchange suffix (e.g. '.BK' → THB) is the most
+    reliable signal of the listing currency, so it wins even over the API — some tickers report
+    a wrong/stale currency (e.g. a delisted '.BK' stock returning USD). For US/suffixless or
+    unknown-suffix tickers, trust the API value, defaulting to USD."""
     suffix = ticker.rsplit(".", 1)[-1].upper() if "." in ticker else ""
-    return _CCY_BY_SUFFIX.get(suffix, "USD")
+    if suffix in _CCY_BY_SUFFIX:
+        return _CCY_BY_SUFFIX[suffix]
+    return info_currency or "USD"
 
 
 def _safe(fn):
