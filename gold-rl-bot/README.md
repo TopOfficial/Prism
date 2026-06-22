@@ -79,9 +79,10 @@ python scripts/run_pipeline.py --mode single
 python scripts/run_pipeline.py --mode walk_forward
 ```
 
-**Real data** — fetches gold futures (`GC=F`) + macro context (DXY, 10Y
-yield, VIX, oil, silver) from Yahoo Finance. Run this on a machine with
-normal internet access (not a firewalled CI/sandbox container):
+**Real data (hourly, full feature set)** — fetches gold futures (`GC=F`) +
+macro context (DXY, 10Y yield, VIX, oil, silver) from Yahoo Finance. Run
+this on a machine with normal internet access (not a firewalled
+CI/sandbox container):
 
 ```bash
 python scripts/download_data.py --period 730d --interval 1h
@@ -90,6 +91,25 @@ python scripts/run_pipeline.py --source real --mode walk_forward
 
 Edit `configs/default.yaml` to change training length, window size,
 transaction cost assumption, walk-forward fold sizes, etc.
+
+**Real data (monthly, fallback for firewalled environments)** — Yahoo
+Finance is unreachable from some sandboxed/CI environments that only allow
+GitHub egress. `scripts/run_monthly_pipeline.py` uses the World Bank "Pink
+Sheet" monthly gold series instead (hosted on GitHub, no API key, updated
+monthly), so it's a genuine real-data result even there. It's a real
+tradeoff, not a free upgrade: ~12 bars/year instead of ~8760, so far fewer
+trades and weaker statistics:
+
+```bash
+python scripts/run_monthly_pipeline.py --split-date 2023-01-01 --out report.json
+```
+
+Trains on the real monthly series through the month before `--split-date`
+and backtests on `--split-date` onward against the same real prices (default
+split is Jan 2023, matching the "since 2023" comparison most people want
+against the recent gold rally). Pre-1971 data is the fixed Bretton Woods
+peg and is excluded by default (`--start-date 1971-01-01`) since it barely
+moves and isn't representative of tradeable gold.
 
 ## Reading the output
 

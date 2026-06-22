@@ -87,3 +87,35 @@ def fetch_macro(
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         df.to_parquet(cache_path)
     return df
+
+
+WORLD_BANK_GOLD_URL = (
+    "https://raw.githubusercontent.com/datasets/gold-prices/main/data/monthly.csv"
+)
+
+
+def fetch_gold_monthly_worldbank(use_cache: bool = True) -> pd.DataFrame:
+    """Fetch the World Bank "Pink Sheet" monthly gold price series.
+
+    This is a real, freely-reachable, no-API-key series hosted on GitHub
+    (so it works even from networks that only allow GitHub egress, unlike
+    Yahoo Finance). It only has one column (a monthly close) and no
+    OHLC/volume, which is why it has its own feature builder
+    (`goldbot.features.monthly.build_monthly_features`) rather than reusing
+    `goldbot.features.engineering.build_features`. Data before ~1971 is the
+    fixed Bretton Woods gold price (barely moves) -- callers usually want to
+    slice from 1971-01 onward for anything indicator-based.
+    """
+    cache_path = CACHE_DIR / "gold_monthly_worldbank.parquet"
+    if use_cache and cache_path.exists():
+        return pd.read_parquet(cache_path)
+
+    df = pd.read_csv(WORLD_BANK_GOLD_URL)
+    df["Date"] = pd.to_datetime(df["Date"], format="%Y-%m")
+    df = df.set_index("Date").rename(columns={"Price": "close"}).sort_index()
+    df = df[["close"]]
+
+    if use_cache:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(cache_path)
+    return df
