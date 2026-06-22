@@ -161,3 +161,44 @@ def test_null_pe_skipped_not_penalized():
     result_high = compute_quality_scores(data_high_pe)
     # null pe should score better than overvalued pe
     assert result_null["valuation_attractiveness"] >= result_high["valuation_attractiveness"]
+
+
+# --- Competitive moat ---------------------------------------------------------
+
+from services.scoring import compute_moat
+
+
+def _moat_data(roic=None, roe=None, gm=(None, None, None), om_cur=None):
+    return {
+        "overview": {"roic_ttm": roic, "roe_ttm": roe},
+        "financials_history": {
+            "fy_minus_2": {"gross_margin_pct": gm[0]},
+            "fy_minus_1": {"gross_margin_pct": gm[1]},
+            "fy_current": {"gross_margin_pct": gm[2], "operating_margin_pct": om_cur},
+        },
+    }
+
+
+def test_moat_wide_high_roic_stable_margins():
+    m = compute_moat(_moat_data(roic=28, gm=(60, 61, 62), om_cur=30))
+    assert m["rating"] == "Wide"
+    assert m["score"] >= 7
+    assert any("ROIC" in s for s in m["signals"])
+
+
+def test_moat_none_low_roic_commodity_margins():
+    m = compute_moat(_moat_data(roic=4, gm=(18, 16, 14)))
+    assert m["rating"] == "None"
+    assert m["score"] < 4
+
+
+def test_moat_narrow_middle():
+    # Neutral ROIC, moderate but stable margins → middling moat.
+    m = compute_moat(_moat_data(roic=7, gm=(28, 28, 28)))
+    assert m["rating"] == "Narrow"
+
+
+def test_moat_insufficient_data():
+    m = compute_moat(_moat_data())
+    assert m["rating"] in ("Wide", "Narrow", "None")
+    assert m["signals"]

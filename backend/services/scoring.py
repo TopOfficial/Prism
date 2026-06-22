@@ -216,6 +216,98 @@ def _score_growth_outlook(fh, earnings_history):
     return _clamp(score), signals, skipped
 
 
+def compute_moat(data: dict) -> dict:
+    """
+    Heuristic competitive-moat assessment from quantitative durability proxies:
+    ROIC (capital-efficiency / pricing power), gross-margin level and its
+    stability across fiscal years, operating margin, and ROE.
+
+    Returns {rating: "Wide"|"Narrow"|"None", score: 1-10, signals: [...]}.
+    A wide moat = sustained high returns on capital that competitors can't erode.
+    """
+    overview = data.get("overview") or {}
+    fh = data.get("financials_history") or {}
+
+    score = 5
+    signals = []
+    skipped = False
+
+    roic = overview.get("roic_ttm")
+    roe = overview.get("roe_ttm")
+
+    # --- ROIC: the single strongest moat proxy ---
+    if roic is not None:
+        if roic > 20:
+            score += 3
+            signals.append((3, f"ROIC {roic:.1f}% — well above cost of capital, signals durable pricing power"))
+        elif roic > 12:
+            score += 2
+            signals.append((2, f"ROIC {roic:.1f}% — above 12%, returns exceed cost of capital"))
+        elif roic > 9:
+            score += 1
+            signals.append((1, f"ROIC {roic:.1f}% — modestly above cost of capital"))
+        elif roic < 5:
+            score -= 2
+            signals.append((-2, f"ROIC {roic:.1f}% — below cost of capital, no return moat"))
+    else:
+        skipped = True
+
+    # --- Gross margin level: pricing power / brand / switching costs ---
+    fy_cur = fh.get("fy_current") or {}
+    fy_1 = fh.get("fy_minus_1") or {}
+    fy_2 = fh.get("fy_minus_2") or {}
+    gm_cur = fy_cur.get("gross_margin_pct")
+
+    if gm_cur is not None:
+        if gm_cur > 50:
+            score += 2
+            signals.append((2, f"Gross margin {gm_cur:.0f}% — premium pricing power"))
+        elif gm_cur > 35:
+            score += 1
+            signals.append((1, f"Gross margin {gm_cur:.0f}% — healthy pricing power"))
+        elif gm_cur < 20:
+            score -= 1
+            signals.append((-1, f"Gross margin {gm_cur:.0f}% — commodity-like economics"))
+    else:
+        skipped = True
+
+    # --- Gross-margin stability/trend: a durable moat holds margins over time ---
+    gm_hist = [m for m in (fy_2.get("gross_margin_pct"), fy_1.get("gross_margin_pct"), gm_cur) if m is not None]
+    if len(gm_hist) >= 3:
+        spread = max(gm_hist) - min(gm_hist)
+        # Stability only signals a moat when margins are meaningful, not for
+        # stable-but-thin commodity economics.
+        if gm_cur is not None and gm_cur >= 25 and gm_hist[-1] >= gm_hist[0] and spread <= 5:
+            score += 1
+            signals.append((1, "Gross margins stable-to-expanding over 3 years — durable advantage"))
+        elif gm_hist[-1] < gm_hist[0] - 5:
+            score -= 1
+            signals.append((-1, "Gross margins eroding over 3 years — moat may be weakening"))
+
+    # --- Operating margin: efficiency corroboration ---
+    om_cur = fy_cur.get("operating_margin_pct")
+    if om_cur is not None and om_cur > 20:
+        score += 1
+        signals.append((1, f"Operating margin {om_cur:.0f}% — strong cost advantage"))
+
+    # --- ROE corroboration (only when ROIC missing, to avoid double counting) ---
+    if roic is None and roe is not None and roe > 20:
+        score += 1
+        signals.append((1, f"ROE {roe:.1f}% — high returns on equity"))
+
+    score = _clamp(score)
+    signals.sort(key=lambda x: abs(x[0]), reverse=True)
+    reasons = [msg for _, msg in signals[:4]]
+    if not reasons:
+        reasons = ["Insufficient data to assess competitive moat"]
+    elif skipped:
+        reasons.append("Assessment based on available data only")
+
+    rating = "Wide" if score >= 7 else "Narrow" if score >= 4 else "None"
+
+    return {"rating": rating, "score": score, "signals": reasons}
+
+
 def compute_quality_scores(data: dict) -> dict:
     fh = data.get("financials_history") or {}
     overview = data.get("overview") or {}

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import QualityScores from "./QualityScores";
 import FeedbackWidget from "./FeedbackWidget";
 
@@ -8,6 +9,85 @@ const VC = {
   OVERVALUED:  { bg: "rgba(248,113,113,0.07)", border: "rgba(248,113,113,0.4)", label: "#F87171", glow: "0 0 40px rgba(248,113,113,0.18)", badge: "rgba(248,113,113,0.15)" },
   "FAIR VALUE":{ bg: "rgba(252,211,77,0.06)",  border: "rgba(252,211,77,0.35)", label: "#FCD34D", glow: "0 0 40px rgba(252,211,77,0.14)", badge: "rgba(252,211,77,0.14)"  },
 };
+
+const MOAT_C = {
+  Wide:   { border: "rgba(52,211,153,0.4)",  label: "#34D399", badge: "rgba(52,211,153,0.15)" },
+  Narrow: { border: "rgba(252,211,77,0.35)", label: "#FCD34D", badge: "rgba(252,211,77,0.14)" },
+  None:   { border: "rgba(248,113,113,0.4)", label: "#F87171", badge: "rgba(248,113,113,0.15)" },
+};
+
+function MethodPopover({ verdict, color }) {
+  const [open, setOpen] = useState(false);
+  const d = verdict.dcf_inputs;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label="How is this valuation calculated?"
+        className="flex items-center justify-center rounded-full cursor-pointer transition-opacity duration-200"
+        style={{
+          width: 18, height: 18, fontSize: 11, fontWeight: 700, lineHeight: 1,
+          fontStyle: "italic", fontFamily: "Georgia, serif",
+          color, border: `1px solid ${color}`, opacity: open ? 1 : 0.7,
+        }}
+        onMouseEnter={e => (e.currentTarget.style.opacity = 1)}
+        onMouseLeave={e => (e.currentTarget.style.opacity = open ? 1 : 0.7)}
+      >
+        i
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-20 mt-2 rounded-xl p-3.5 text-left"
+          style={{
+            top: "100%", left: 0, width: 264,
+            background: "#0E1521", border: "1px solid rgba(255,255,255,0.1)",
+            boxShadow: "0 12px 36px rgba(0,0,0,0.55)",
+          }}
+        >
+          {d ? (
+            <>
+              <p className="text-xs font-bold mb-1.5" style={{ color }}>
+                Discounted Cash Flow (DCF)
+              </p>
+              <p className="text-xs leading-relaxed mb-2.5" style={{ color: "#94A3B8" }}>
+                Primary method. Projects 5 years of free cash flow, discounts them to
+                present value at the WACC, then adds a terminal value at a perpetual
+                growth rate.
+              </p>
+              <div className="flex flex-col gap-1">
+                {[
+                  ["FCF growth", `${d.growth_rate}%`],
+                  ["WACC (discount)", `${d.wacc}%`],
+                  ["Terminal growth", `${d.terminal_growth}%`],
+                  ["Intrinsic value", verdict.intrinsic_value != null ? verdict.intrinsic_value : "—"],
+                  ["Margin of safety", verdict.margin_of_safety != null ? `${verdict.margin_of_safety}%` : "—"],
+                ].map(([k, val]) => (
+                  <div key={k} className="flex items-center justify-between">
+                    <span className="text-xs" style={{ color: "#64748B" }}>{k}</span>
+                    <span className="text-xs font-semibold" style={{ color: "#CBD5E1", fontFamily: "'Fira Code', monospace" }}>{val}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-bold mb-1.5" style={{ color }}>
+                Relative multiples
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: "#94A3B8" }}>
+                A DCF needs positive free cash flow, which isn't available here. The
+                verdict is based on relative valuation instead — comparing P/E against
+                the sector average, and falling back to P/S for pre-profit companies.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SectionTitle({ children, accent = "purple" }) {
   const c = accent === "yellow" ? "#FCD34D" : "#A855F7";
@@ -34,13 +114,14 @@ export default function LeftPanel({ data, apiBase, onOpenResearch }) {
           className="animate-fade-in-up rounded-2xl p-5"
           style={{ background: vc.bg, border: `1px solid ${vc.border}`, boxShadow: vc.glow, animationDelay: "0.05s" }}
         >
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-2.5 mb-3">
             <span
               className="text-sm font-bold px-3 py-1 rounded-full"
               style={{ background: vc.badge, color: vc.label, border: `1px solid ${vc.border}`, textShadow: `0 0 12px ${vc.label}90`, fontFamily: "'Space Grotesk', sans-serif" }}
             >
               {v.label}
             </span>
+            <MethodPopover verdict={v} color={vc.label} />
           </div>
           <p className="text-sm font-semibold mb-4 leading-relaxed" style={{ color: vc.label }}>{v.reason}</p>
           <div className="flex flex-col gap-2.5">
@@ -81,6 +162,42 @@ export default function LeftPanel({ data, apiBase, onOpenResearch }) {
         >
           <SectionTitle accent="purple">Quality Score</SectionTitle>
           <QualityScores scores={data.quality_scores} />
+        </div>
+      )}
+
+      {/* ── Competitive Moat ── */}
+      {data.competitive_moat && (
+        <div className="animate-fade-in-up glass-card p-5" style={{ animationDelay: "0.15s" }}>
+          <SectionTitle accent="purple">Competitive Moat</SectionTitle>
+          {(() => {
+            const m = data.competitive_moat;
+            const mc = MOAT_C[m.rating] || MOAT_C.None;
+            return (
+              <>
+                <div className="flex items-center gap-2.5 mb-3">
+                  <span
+                    className="text-sm font-bold px-3 py-1 rounded-full"
+                    style={{ background: mc.badge, color: mc.label, border: `1px solid ${mc.border}`, textShadow: `0 0 12px ${mc.label}90`, fontFamily: "'Space Grotesk', sans-serif" }}
+                  >
+                    {m.rating === "None" ? "No Moat" : `${m.rating} Moat`}
+                  </span>
+                  {m.score != null && (
+                    <span className="font-mono text-sm font-semibold" style={{ color: mc.label }}>
+                      {m.score}/10
+                    </span>
+                  )}
+                </div>
+                <ul className="flex flex-col gap-2">
+                  {m.signals?.map((s, i) => (
+                    <li key={i} className="flex gap-2 text-sm leading-relaxed" style={{ color: "#94A3B8" }}>
+                      <span style={{ color: mc.label, flexShrink: 0 }}>•</span>
+                      <span>{s}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            );
+          })()}
         </div>
       )}
 

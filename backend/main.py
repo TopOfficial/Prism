@@ -13,7 +13,7 @@ from services.yfinance_service import get_stock_data
 from services.fmp_service import get_sector_pe, get_valuation, get_profile, search_tickers, get_earnings
 from services.news_service import get_news
 from services.verdict_service import compute_verdict
-from services.scoring import compute_quality_scores
+from services.scoring import compute_quality_scores, compute_moat
 from services.research_service import run_stock_analysis
 from services.auth_service import (
     verify_jwt, get_account_status, consume_research, refund_research,
@@ -379,6 +379,11 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         "market_cap": market_cap,  # FMP-filled value, consistent with what the card displays
     })
 
+    competitive_moat = compute_moat({
+        "overview": stock["overview"],
+        "financials_history": stock.get("financials_history"),
+    })
+
     return {
         "ticker": stock["ticker"],
         "company_name": company_name,
@@ -398,4 +403,5 @@ def get_brief(ticker: str, request: Request, user=Depends(_get_user)):
         "institutional": stock["institutional"],
         "verdict": verdict,
         "quality_scores": quality_scores,
+        "competitive_moat": competitive_moat,
     }
