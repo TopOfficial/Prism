@@ -77,7 +77,18 @@ Daily market briefing shown to everyone on the homepage.
 
 ---
 
-## v1.2 — Retention (give users a reason to come back)
+## v1.2 — Retention (give users a reason to come back) — ✅ SHIPPED 2026-07-07 (code complete)
+
+**Status: built + tested 2026-07-07** (74 backend tests green, frontend lint+build clean). Plan: `docs/plans/2026-07-07-v1.2-retention.md`.
+
+**Deploy actions (user, before this goes live):**
+1. Supabase → run **section 7** of `docs/supabase-setup.sql` (`watchlists` table + `users.alerts_enabled`).
+2. Sign up at Resend (resend.com, free tier 3k emails/mo), verify the prisminv.com domain, then set on Render: `RESEND_API_KEY`, `ALERT_FROM_EMAIL` (e.g. `Prism <alerts@prisminv.com>`), `CRON_SECRET` (any long random string), `UNSUB_SECRET` (another long random string).
+3. Render → New → Cron Job, daily at 21:30 UTC (after US close):
+   `curl -X POST -H "X-Cron-Secret: $CRON_SECRET" https://prism-6ev2.onrender.com/jobs/run-alerts`
+4. Push to deploy backend + frontend (new `/unsubscribe` rewrite in vercel.json).
+
+Implementation notes: baseline jsonb per (user,ticker) diffed daily — new earnings quarter → Sonnet ≤120-word delta summary (the earnings copilot), ≥5% day-over-day move → Haiku one-liner, template fallback if models fail; cost scales with distinct tickers, not users; one digest email per user per day max; first run after watching only seeds the baseline (never alerts); HMAC one-click unsubscribe + List-Unsubscribe header.
 
 ### 5. AI watchlist + alerts ("tell me only when something actually changes")
 The single retention feature. Absorbs "Earnings copilot" as an alert type.
