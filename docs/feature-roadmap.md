@@ -164,7 +164,16 @@ Record *why* you bought; Prism tells you when the thesis strengthens/weakens and
 
 ---
 
-## v2.0 — Power research (only with revenue + explicit user demand)
+## v2.0 — Power research (only with revenue + explicit user demand) — ⚙️ PARTIALLY SHIPPED 2026-07-07
+
+**Shipped 2026-07-07 (the feasible subset):**
+- **Catalyst calendar** (honest version, as planned): upcoming earnings with EPS/revenue estimates + ex-dividend/payment dates per ticker, watchlist-wide view in the Watchlist tab (`GET /catalysts`), 6h cache. Verified live against FMP.
+- **Scenario modeling**: transparent client-side driver model on the Brief tab — EPS(TTM) × growth^years × exit P/E → implied price / total return / CAGR, with sliders. No fake precision, assumptions stated on the card.
+- **Economic dashboard (data layer)**: `GET /macro` serves Fed Funds, 10Y, CPI YoY, unemployment from FRED (12h cache) with a homepage strip. **Ships dark** — activates when `FRED_API_KEY` (free: fred.stlouisfed.org) is set on Render; no code change needed. Holdings-personalized narrative deferred until it's activated.
+
+**Deferred (with reasons, per this section's own build-on-demand rule):**
+- **Institutional/insider tracker** — FMP per-symbol insider endpoint returns 402 on the current plan (verified 2026-07-07); the alternative is EDGAR Form 4 parsing (~weeks). Revisit on plan upgrade or paid-user demand.
+- **SEC filing simplifier** — EDGAR 10-K/10-Q section-diff parsing is the XL build; build when paying users ask by name.
 
 Ordered within v2.0 by value-per-effort. Pick based on what paying users actually request — do not build all five on spec.
 
