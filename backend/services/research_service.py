@@ -228,6 +228,28 @@ def extract_extras(report_text: str) -> tuple[str, dict | None]:
     return clean, extras
 
 
+# Matches the server-generated comparables block (see comparables_service.attach_comps).
+_PRISM_COMPS_RE = re.compile(r"```prism-comps\s*\n(.*?)\n```", re.DOTALL)
+
+
+def split_report(report_text: str) -> tuple[str, dict | None, dict | None]:
+    """Split a raw stored report into (markdown, extras, comparables), stripping
+    both machine blocks. Either block may be absent (older reports)."""
+    md, extras = extract_extras(report_text or "")
+    comps = None
+    m = _PRISM_COMPS_RE.search(md)
+    if m:
+        try:
+            comps = json.loads(m.group(1))
+            if "subject" not in comps or "peers" not in comps:
+                raise ValueError("missing keys")
+            md = (md[: m.start()] + md[m.end():]).strip() + "\n"
+        except (ValueError, TypeError) as e:
+            print(f"[RESEARCH] prism-comps block rejected: {e}")
+            comps = None
+    return md, extras, comps
+
+
 def _fmt(val):
     if val is None:
         return "N/A"
@@ -340,14 +362,17 @@ def _build_context(ticker: str, data: dict) -> str:
     return "\n".join(lines)
 
 
-def run_stock_analysis(ticker: str, prism_data: dict) -> str:
-    """Run a fresh 3-phase institutional equity analysis using the stock-analyst framework."""
+def run_stock_analysis(ticker: str, prism_data: dict, extra_context: str = "") -> str:
+    """Run a fresh 3-phase institutional equity analysis using the stock-analyst framework.
+    `extra_context` carries additional real fetched data (e.g. the peer comparison table)."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY is not set")
 
     client = anthropic.Anthropic(api_key=api_key)
     context = _build_context(ticker, prism_data)
+    if extra_context:
+        context += "\n" + extra_context
 
     user_message = (
         f"Analyze {ticker} using your three-phase institutional equity analysis framework.\n\n"

@@ -14,7 +14,8 @@ from services.fmp_service import get_sector_pe, get_valuation, get_profile, sear
 from services.news_service import get_news
 from services.verdict_service import compute_verdict
 from services.scoring import compute_quality_scores, compute_moat
-from services.research_service import run_stock_analysis, extract_extras
+from services.research_service import run_stock_analysis, split_report
+from services.comparables_service import build_comparables, attach_comps, comps_context_lines
 from services.auth_service import (
     verify_jwt, get_account_status, consume_research, refund_research,
     save_history, list_history, get_history_report, get_usage_stats, save_feedback,
@@ -191,12 +192,13 @@ def get_history_one(ticker: str, user=Depends(_get_user)):
     row = get_history_report(user.id, ticker.upper().strip())
     if not row:
         raise HTTPException(status_code=404, detail="no_history")
-    report_md, extras = extract_extras(row["report"])
+    report_md, extras, comparables = split_report(row["report"])
     return {
         "ticker": row["ticker"],
         "company_name": row.get("company_name"),
         "report": report_md,
         "extras": extras,
+        "comparables": comparables,
         "created_at": row.get("created_at"),
     }
 
@@ -304,12 +306,13 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
             save_history(user.id, ticker, company_name, report,
                          created_at=shared.get("created_at"), source="shared")
             status = get_account_status(user.id)
-            report_md, extras = extract_extras(report)
+            report_md, extras, comparables = split_report(report)
             return {
                 "ticker": ticker,
                 "company_name": company_name,
                 "report": report_md,
                 "extras": extras,
+                "comparables": comparables,
                 "charge_type": charge_type,
                 "account": status,
             }
@@ -349,8 +352,17 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
             "institutional":      stock["institutional"],
         }
 
+        comps = None
         try:
-            report = run_stock_analysis(ticker, prism_data)
+            comps = build_comparables(ticker, {
+                "name": company_name, "market_cap": market_cap,
+                "pe": valuation["pe"], "ps": valuation["ps"], "ev_ebitda": valuation["ev_ebitda"],
+            })
+        except Exception as e:
+            print(f"[RESEARCH] comparables {ticker} failed (non-fatal): {e}")
+
+        try:
+            report = run_stock_analysis(ticker, prism_data, extra_context=comps_context_lines(comps))
         except ValueError as e:
             # Refund: the user was charged above but gets no report.
             refund_research(user.id, charge_type)
@@ -363,14 +375,16 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
             print(f"[RESEARCH] {ticker} failed: {type(e).__name__}: {e}")
             raise HTTPException(status_code=500, detail="analysis_failed")
 
+        report = attach_comps(report, comps)
         save_history(user.id, ticker, company_name, report)
         status = get_account_status(user.id)
-        report_md, extras = extract_extras(report)
+        report_md, extras, comparables = split_report(report)
         return {
             "ticker": ticker,
             "company_name": company_name,
             "report": report_md,
             "extras": extras,
+            "comparables": comparables,
             "charge_type": charge_type,
             "account": status,
         }

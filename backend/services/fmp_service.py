@@ -124,6 +124,34 @@ def search_tickers(query: str, limit: int = 8) -> list:
         return []
 
 
+def get_peers(ticker: str, limit: int = 4) -> list:
+    """Closest peers from /stable/stock-peers, largest first.
+    [{symbol, name, market_cap, price}] — empty list when unavailable."""
+    api_key = _key()
+    if not api_key:
+        return []
+    try:
+        r = requests.get(f"{BASE}/stock-peers", params={"symbol": ticker, "apikey": api_key}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, list):
+            return []
+        peers = [
+            {
+                "symbol": d["symbol"],
+                "name": d.get("companyName"),
+                "market_cap": float(d["mktCap"]) if d.get("mktCap") is not None else None,
+                "price": float(d["price"]) if d.get("price") is not None else None,
+            }
+            for d in data if d.get("symbol") and d["symbol"] != ticker
+        ]
+        peers.sort(key=lambda p: p.get("market_cap") or 0, reverse=True)
+        return peers[:limit]
+    except Exception as e:
+        print(f"[FMP] get_peers {ticker}: {type(e).__name__}: {e}")
+        return []
+
+
 def _exchange_for_snapshot(exchange: str | None) -> str:
     """Map a stock's listing exchange to a sector-pe-snapshot exchange code.
     Defaults to NYSE when unknown (preserves prior behavior)."""

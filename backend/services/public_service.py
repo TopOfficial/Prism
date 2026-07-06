@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 import markdown as md_lib
 
-from services.research_service import extract_extras
+from services.research_service import split_report
 
 SITE_URL = os.environ.get("PUBLIC_SITE_URL", "https://www.prisminv.com")
 PUBLISH_MAX_AGE = timedelta(days=7)   # only fresh analysis may be published
@@ -148,13 +148,36 @@ def _scorecard_strip(extras: dict | None) -> str:
     )
 
 
+def _comps_table(comps: dict | None) -> str:
+    if not comps:
+        return ""
+    def cell(v):
+        return html_mod.escape(str(v)) if v is not None else "—"
+    def mc(v):
+        return f"${v / 1e9:,.0f}B" if v else "—"
+    rows = []
+    for r in [comps["subject"]] + comps["peers"]:
+        bold = ' style="color:#E2E8F0;font-weight:700"' if r["ticker"] == comps["subject"]["ticker"] else ""
+        rows.append(
+            f"<tr><td{bold}>{cell(r.get('ticker'))}</td><td>{cell(r.get('name'))}</td>"
+            f"<td>{mc(r.get('market_cap'))}</td><td>{cell(r.get('pe'))}</td>"
+            f"<td>{cell(r.get('ps'))}</td><td>{cell(r.get('ev_ebitda'))}</td></tr>"
+        )
+    return (
+        "<h3>Comparable companies</h3>"
+        "<table><thead><tr><th>Ticker</th><th>Company</th><th>Mkt cap</th>"
+        "<th>P/E</th><th>P/S</th><th>EV/EBITDA</th></tr></thead>"
+        "<tbody>" + "".join(rows) + "</tbody></table>"
+    )
+
+
 def render_page_html(row: dict) -> str:
     """Full HTML document for a published report row."""
     ticker = html_mod.escape(row["ticker"])
     company = html_mod.escape(row.get("company_name") or "")
     display_name = company or ticker
 
-    report_md, extras = extract_extras(row.get("report") or "")
+    report_md, extras, comps = split_report(row.get("report") or "")
     safe_md = _RAW_TAG_RE.sub("&lt;", report_md)
     body_html = md_lib.markdown(safe_md, extensions=["tables"])
 
@@ -220,6 +243,7 @@ def render_page_html(row: dict) -> str:
   {stale_banner}
   {_scorecard_strip(extras)}
   {body_html}
+  {_comps_table(comps)}
   <div class="foot">
     Prism is for informational purposes only, not financial advice. Investing involves
     risk, including loss of principal. Verify independently before making any investment

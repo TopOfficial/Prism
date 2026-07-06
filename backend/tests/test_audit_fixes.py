@@ -172,6 +172,8 @@ def client_with_stubs(monkeypatch):
     monkeypatch.setattr(main, "get_earnings", lambda t: [])
     monkeypatch.setattr(main, "get_history_report", lambda u, t: None)
     monkeypatch.setattr(main, "get_shared_report", lambda t, exclude_user_id, newer_than=None: None)
+    # Never hit the real FMP peers endpoint from endpoint tests.
+    monkeypatch.setattr(main, "build_comparables", lambda t, own: None)
     monkeypatch.setattr(main, "get_account_status", lambda u: {"credits": 4})
     # Default: lock acquired; tests that exercise contention override this.
     monkeypatch.setattr(main, "acquire_research_lock", lambda u, t: True)
@@ -187,7 +189,7 @@ def test_research_refunds_on_analysis_failure(client_with_stubs, monkeypatch):
     monkeypatch.setattr(main, "refund_research", refund)
     save = MagicMock()
     monkeypatch.setattr(main, "save_history", save)
-    def boom(t, d): raise RuntimeError("Claude down")
+    def boom(t, d, **kw): raise RuntimeError("Claude down")
     monkeypatch.setattr(main, "run_stock_analysis", boom)
 
     r = client_with_stubs.post("/research/AAA")
@@ -201,7 +203,7 @@ def test_research_no_refund_on_success(client_with_stubs, monkeypatch):
     refund = MagicMock()
     monkeypatch.setattr(main, "refund_research", refund)
     monkeypatch.setattr(main, "save_history", MagicMock())
-    monkeypatch.setattr(main, "run_stock_analysis", lambda t, d: "# Report body")
+    monkeypatch.setattr(main, "run_stock_analysis", lambda t, d, **kw: "# Report body")
 
     r = client_with_stubs.post("/research/AAA")
     assert r.status_code == 200
@@ -255,7 +257,7 @@ def test_research_rejects_when_lock_held(client_with_stubs, monkeypatch):
 def test_research_releases_lock_on_success(client_with_stubs, monkeypatch):
     monkeypatch.setattr(main, "consume_research", lambda u: (True, "credit"))
     monkeypatch.setattr(main, "save_history", MagicMock())
-    monkeypatch.setattr(main, "run_stock_analysis", lambda t, d: "# ok")
+    monkeypatch.setattr(main, "run_stock_analysis", lambda t, d, **kw: "# ok")
     release = MagicMock()
     monkeypatch.setattr(main, "release_research_lock", release)
     r = client_with_stubs.post("/research/AAA")
@@ -266,7 +268,7 @@ def test_research_releases_lock_on_success(client_with_stubs, monkeypatch):
 def test_research_releases_lock_on_failure(client_with_stubs, monkeypatch):
     monkeypatch.setattr(main, "consume_research", lambda u: (True, "credit"))
     monkeypatch.setattr(main, "refund_research", MagicMock())
-    def boom(t, d): raise RuntimeError("down")
+    def boom(t, d, **kw): raise RuntimeError("down")
     monkeypatch.setattr(main, "run_stock_analysis", boom)
     release = MagicMock()
     monkeypatch.setattr(main, "release_research_lock", release)
