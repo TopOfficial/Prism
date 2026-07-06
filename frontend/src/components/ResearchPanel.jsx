@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { supabase } from "../lib/supabase";
 import { EXAMPLE_REPORT } from "../lib/exampleReport";
+import ScorecardCard from "./ScorecardCard";
+import BullBearDebate from "./BullBearDebate";
 
 // Code-split the markdown renderer — only loaded when a report is shown.
 const MarkdownReport = lazy(() => import("./MarkdownReport"));
@@ -116,6 +118,7 @@ function getPendingStart(userId, ticker) {
 export default function ResearchPanel({ ticker, user, account, canRun, hasHistory, apiBase, onUpgrade, onRunComplete }) {
   const [status, setStatus] = useState("idle"); // idle | locked | loading | done | error
   const [report, setReport] = useState(null);
+  const [extras, setExtras] = useState(null); // {scorecard, bull_bear} — null for pre-v1.1 reports
   const [createdAt, setCreatedAt] = useState(null);
   const [errMsg, setErrMsg] = useState(null);
   const [elapsed, setElapsed] = useState(0);
@@ -141,6 +144,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
     if (pendingStart) {
       setStatus("loading");
       setReport(null);
+      setExtras(null);
       setCreatedAt(null);
       setElapsed(Math.floor((Date.now() - pendingStart) / 1000));
 
@@ -166,6 +170,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
             clearInterval(pollRef.current);
             localStorage.removeItem(pendingKey(user?.id, ticker));
             setReport(d.report);
+            setExtras(d.extras || null);
             setCreatedAt(d.created_at);
             setStatus("done");
             loadedRef.current = ticker;
@@ -180,6 +185,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
 
     setStatus("idle");
     setReport(null);
+    setExtras(null);
     setCreatedAt(null);
     setElapsed(0);
     if (!user || !hasHistory) return;
@@ -193,6 +199,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
         if (cancelled || !res.ok) return;
         const d = await res.json();
         setReport(d.report);
+        setExtras(d.extras || null);
         setCreatedAt(d.created_at);
         setStatus("done");
         loadedRef.current = ticker;
@@ -217,6 +224,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
 
     setStatus("loading");
     setReport(null);
+    setExtras(null);
     setErrMsg(null);
 
     const key = pendingKey(user.id, ticker);
@@ -243,6 +251,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
       }
       const data = await res.json();
       setReport(data.report);
+      setExtras(data.extras || null);
       setCreatedAt(new Date().toISOString());
       setStatus("done");
       loadedRef.current = ticker;
@@ -266,6 +275,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
       if (!res.ok) return; // still running — stay on the in-progress screen
       const d = await res.json();
       setReport(d.report);
+      setExtras(d.extras || null);
       setCreatedAt(d.created_at);
       setStatus("done");
       loadedRef.current = ticker;
@@ -309,7 +319,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
             </span>
           )}
           {status === "done" && (
-            <button onClick={() => { setStatus("idle"); setReport(null); }}
+            <button onClick={() => { setStatus("idle"); setReport(null); setExtras(null); }}
               style={{ fontSize: 12, color: "#3D5068", background: "none", border: "none", cursor: "pointer" }}>
               Clear
             </button>
@@ -505,6 +515,11 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
                 </span>
               </div>
             )}
+
+            {extras?.scorecard && (
+              <ScorecardCard ticker={ticker} companyName={null} scorecard={extras.scorecard} />
+            )}
+            {extras?.bull_bear && <BullBearDebate bullBear={extras.bull_bear} />}
 
             <Suspense fallback={<MarkdownFallback />}>
               <MarkdownReport components={MD}>{report}</MarkdownReport>
