@@ -1,7 +1,8 @@
 {
   "rewrites": [
     { "source": "/r/:ticker", "destination": "https://prism-6ev2.onrender.com/r/:ticker" },
-    { "source": "/sitemap.xml", "destination": "https://prism-6ev2.onrender.com/sitemap.xml" }
+    { "source": "/sitemap.xml", "destination": "https://prism-6ev2.onrender.com/sitemap.xml" },
+    { "source": "/unsubscribe", "destination": "https://prism-6ev2.onrender.com/unsubscribe" }
   ],
   "headers": [
     {

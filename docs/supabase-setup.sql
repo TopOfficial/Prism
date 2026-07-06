@@ -290,3 +290,32 @@ create table if not exists public.market_news (
 alter table public.market_news enable row level security;
 create policy "service role: all" on public.market_news
   using (true) with check (true);
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 7. v1.2 (Retention) — run this whole section once when deploying v1.2
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- 7a. Watchlists: one row per (user, ticker). `baseline` is what the daily
+--     alert job diffs against (last seen price + earnings quarter); it is
+--     seeded on the first run so a fresh watch never alerts immediately.
+create table if not exists public.watchlists (
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  ticker       text not null,
+  company_name text,
+  added_at     timestamptz not null default now(),
+  baseline     jsonb not null default '{"price": null, "earnings_quarter": null}',
+  primary key (user_id, ticker)
+);
+
+alter table public.watchlists enable row level security;
+create policy "watchlists: read own" on public.watchlists
+  for select using (auth.uid() = user_id);
+create policy "service role: all" on public.watchlists
+  using (true) with check (true);
+
+-- Supports the alert job's group-by-ticker pass.
+create index if not exists watchlists_ticker_idx on public.watchlists (ticker);
+
+-- 7b. Alert email opt-out (one-click unsubscribe link in every alert email).
+alter table public.users add column if not exists alerts_enabled boolean not null default true;

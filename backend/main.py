@@ -26,6 +26,7 @@ from services.public_service import (
     publish_report, render_public_page, sitemap_xml, is_valid_ticker, PublishError,
 )
 from services.market_news_service import get_market_news
+from routes.watchlist_routes import router as watchlist_router
 
 security = HTTPBearer(auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
@@ -50,6 +51,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(watchlist_router)
 
 
 def _get_user(creds: HTTPAuthorizationCredentials = Depends(security)):
