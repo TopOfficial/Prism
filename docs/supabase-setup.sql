@@ -319,3 +319,23 @@ create index if not exists watchlists_ticker_idx on public.watchlists (ticker);
 
 -- 7b. Alert email opt-out (one-click unsubscribe link in every alert email).
 alter table public.users add column if not exists alerts_enabled boolean not null default true;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 8. v1.3 (Depth) — run this whole section once when deploying v1.3
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- 8a. Research chat memory: one thread per (user, ticker).
+create table if not exists public.research_chats (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  ticker     text not null,
+  messages   jsonb not null default '[]',
+  updated_at timestamptz not null default now(),
+  primary key (user_id, ticker)
+);
+
+alter table public.research_chats enable row level security;
+create policy "chats: read own" on public.research_chats
+  for select using (auth.uid() = user_id);
+create policy "service role: all" on public.research_chats
+  using (true) with check (true);
