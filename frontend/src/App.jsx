@@ -14,6 +14,8 @@ import HistorySidebar from "./components/HistorySidebar";
 import MarketNews from "./components/MarketNews";
 import WatchlistTab from "./components/WatchlistTab";
 import PortfolioTab from "./components/PortfolioTab";
+import ScenarioModel from "./components/ScenarioModel";
+import MacroStrip from "./components/MacroStrip";
 import { Analytics } from "@vercel/analytics/react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -370,7 +372,12 @@ export default function App() {
           {error && <ErrorState ticker={ticker} message={error} />}
 
           {/* Homepage: today's market briefing until a ticker is searched */}
-          {!loading && !error && !data && <MarketNews apiBase={API} />}
+          {!loading && !error && !data && (
+            <>
+              <MarketNews apiBase={API} />
+              <MacroStrip apiBase={API} />
+            </>
+          )}
 
           {!loading && !error && (data || user) && (
             <div className="flex flex-col gap-4">
@@ -430,6 +437,7 @@ export default function App() {
                   <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                     <div className="flex-1 min-w-0">
                       <BriefCard data={data} />
+                      <ScenarioModel data={data} />
                     </div>
                     <div className="lg:w-[400px] xl:w-[440px] shrink-0 lg:sticky lg:top-6">
                       <LeftPanel data={data} apiBase={API} user={user} onUpgrade={handleUpgrade} onOpenResearch={() => setActiveTab("research")} />
@@ -468,6 +476,7 @@ export default function App() {
                     onSelect={t => handleSearch(t)}
                     onRemove={t => toggleWatch(t)}
                     onUpgrade={handleUpgrade}
+                    apiBase={API}
                   />
                 </div>
               )}
