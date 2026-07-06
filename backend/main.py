@@ -25,6 +25,7 @@ from services.stripe_service import create_checkout_session, handle_webhook, cre
 from services.public_service import (
     publish_report, render_public_page, sitemap_xml, is_valid_ticker, PublishError,
 )
+from services.market_news_service import get_market_news
 
 security = HTTPBearer(auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
@@ -195,6 +196,17 @@ def get_history_one(ticker: str, user=Depends(_get_user)):
         "extras": extras,
         "created_at": row.get("created_at"),
     }
+
+
+@app.get("/market-news")
+@limiter.limit("30/hour")
+def market_news(request: Request):
+    """Today's market briefing — same cached content for every visitor."""
+    try:
+        return get_market_news()
+    except Exception as e:
+        print(f"[MARKET] /market-news failed: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=503, detail="market_news_unavailable")
 
 
 @app.post("/publish/{ticker}")

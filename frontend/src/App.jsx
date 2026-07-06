@@ -11,6 +11,7 @@ import ResearchPanel from "./components/ResearchPanel";
 import PricingModal from "./components/PricingModal";
 import ProfileModal from "./components/ProfileModal";
 import HistorySidebar from "./components/HistorySidebar";
+import MarketNews from "./components/MarketNews";
 import { Analytics } from "@vercel/analytics/react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -330,6 +331,9 @@ export default function App() {
         <div className="relative z-10 mt-6 pb-12">
           {loading && <LoadingState ticker={ticker} />}
           {error && <ErrorState ticker={ticker} message={error} />}
+
+          {/* Homepage: today's market briefing until a ticker is searched */}
+          {!loading && !error && !data && <MarketNews apiBase={API} />}
 
           {!loading && !error && (data || user) && (
             <div className="flex flex-col gap-4">
