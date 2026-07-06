@@ -29,6 +29,7 @@ from services.public_service import (
 from services.market_news_service import get_market_news
 from routes.watchlist_routes import router as watchlist_router
 from routes.chat_routes import router as chat_router
+from routes.portfolio_routes import router as portfolio_router
 
 security = HTTPBearer(auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
@@ -56,6 +57,7 @@ app.add_middleware(
 
 app.include_router(watchlist_router)
 app.include_router(chat_router)
+app.include_router(portfolio_router)
 
 
 def _get_user(creds: HTTPAuthorizationCredentials = Depends(security)):

@@ -235,6 +235,7 @@ def run_alerts() -> dict:
 
     ticker_events: dict[str, list] = {}
     ticker_text: dict[str, dict] = {}   # ticker -> {event_type: text}
+    thesis_notes: dict[tuple, dict] = {}  # (user_id, ticker) -> checkpoint
     for ticker, t_rows in by_ticker.items():
         try:
             price = _current_price(ticker)
@@ -244,8 +245,13 @@ def run_alerts() -> dict:
             ticker_events[ticker] = events
             company = t_rows[0].get("company_name")
             for ev in events:
-                ticker_text.setdefault(ticker, {})[ev["type"]] = _event_text(
-                    ticker, company, ev, {"earnings": earnings})
+                text = _event_text(ticker, company, ev, {"earnings": earnings})
+                ticker_text.setdefault(ticker, {})[ev["type"]] = text
+                if ev["type"] == "earnings":
+                    # Earnings landed → checkpoint every thesis on this ticker (v1.4).
+                    from services.thesis_service import evaluate_theses_for_earnings
+                    for uid, checkpoint in evaluate_theses_for_earnings(ticker, text):
+                        thesis_notes[(uid, ticker)] = checkpoint
             _update_baseline(ticker, {"price": price if price is not None else baseline.get("price"),
                                       "earnings_quarter": quarter or baseline.get("earnings_quarter")})
         except Exception as e:
@@ -260,8 +266,13 @@ def run_alerts() -> dict:
             email, enabled = contact.get(user_id, (None, False))
             if not email or not enabled:
                 continue
-            digest = [(t, ev, ticker_text.get(t, {}).get(ev["type"]) or _template_text(t, ev))
-                      for t, ev in items]
+            digest = []
+            for t, ev in items:
+                text = ticker_text.get(t, {}).get(ev["type"]) or _template_text(t, ev)
+                cp = thesis_notes.get((user_id, t))
+                if cp and ev["type"] == "earnings":
+                    text += f"\n\nYour thesis: {cp['verdict'].upper()} — {cp['note']}"
+                digest.append((t, ev, text))
             tickers = ", ".join(sorted({t for t, _ in items}))
             if _send_email(email, f"Prism watchlist: {tickers}", _digest_html(digest, user_id), user_id):
                 emails_sent += 1

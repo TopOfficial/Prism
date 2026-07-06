@@ -339,3 +339,44 @@ create policy "chats: read own" on public.research_chats
   for select using (auth.uid() = user_id);
 create policy "service role: all" on public.research_chats
   using (true) with check (true);
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 9. v1.4 (Portfolio) — run this whole section once when deploying v1.4
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- 9a. Portfolio holdings: one portfolio per user, one row per ticker.
+create table if not exists public.holdings (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  ticker     text not null,
+  shares     numeric not null,
+  cost_basis numeric,
+  added_at   timestamptz not null default now(),
+  primary key (user_id, ticker)
+);
+
+alter table public.holdings enable row level security;
+create policy "holdings: read own" on public.holdings
+  for select using (auth.uid() = user_id);
+create policy "service role: all" on public.holdings
+  using (true) with check (true);
+
+-- 9b. Investment theses + checkpoint journal (evaluated after each earnings
+--     event by the daily alert job).
+create table if not exists public.theses (
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  ticker      text not null,
+  thesis      text not null,
+  created_at  timestamptz not null default now(),
+  checkpoints jsonb not null default '[]',
+  primary key (user_id, ticker)
+);
+
+alter table public.theses enable row level security;
+create policy "theses: read own" on public.theses
+  for select using (auth.uid() = user_id);
+create policy "service role: all" on public.theses
+  using (true) with check (true);
+
+-- Supports the alert job's per-ticker thesis lookup.
+create index if not exists theses_ticker_idx on public.theses (ticker);
