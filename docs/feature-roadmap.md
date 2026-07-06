@@ -107,7 +107,13 @@ The single retention feature. Absorbs "Earnings copilot" as an alert type.
 
 ---
 
-## v1.3 — Depth (make each research session stickier)
+## v1.3 — Depth (make each research session stickier) — ✅ SHIPPED 2026-07-07 (code complete)
+
+**Status: built + tested 2026-07-07** (85 backend tests green, frontend lint+build clean; FMP `/stable/stock-peers` verified live on the current plan). Plan: `docs/plans/2026-07-07-v1.3-depth.md`.
+
+**Deploy actions (user):** run **section 8** of `docs/supabase-setup.sql` (`research_chats`), push backend + frontend.
+
+Implementation notes: peer metrics are real FMP data (24h in-process cache, ≤5 extra calls/ticker/day), fed into the Claude context so Phase 1 comps cite actual figures, and attached to saved reports as a server-generated `prism-comps` block (public pages render the table too — extra SEO content). Chat: per-(user,ticker) jsonb thread, Sonnet with report+peers as system context, last 20 messages per turn; free = 5 questions/ticker → subscription upsell (simplified from the credits-per-10-turns idea — fewer moving parts, same upsell), unlimited accounts fair-use 200 messages/ticker.
 
 ### 6. Comparable companies
 Auto-compare metrics, valuation, growth vs 3–5 peers.
