@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import anthropic
 
 _SYSTEM_PROMPT = """# Stock Analyst Skill
@@ -148,7 +150,82 @@ Answer it directly.
 - Tables for financial data. Prose for qualitative judgment.
 - Verdicts must be directional. "It depends" is not a verdict.
 - Phase 3 math must be reproducible — show each step.
+
+---
+
+## MACHINE-READABLE APPENDIX (REQUIRED — LAST THING IN YOUR RESPONSE)
+
+After Phase 3, end your response with exactly one fenced code block tagged `prism-json`.
+It must be valid JSON (no comments, no trailing commas) with exactly this shape:
+
+```prism-json
+{
+  "scorecard": {
+    "growth":        {"score": 7, "reason": "one line, cite a number from the data"},
+    "profitability": {"score": 7, "reason": "..."},
+    "moat":          {"score": 7, "reason": "..."},
+    "management":    {"score": 7, "reason": "..."},
+    "valuation":     {"score": 7, "reason": "..."},
+    "risk":          {"score": 7, "reason": "one line; 10 = LOW risk, 1 = HIGH risk"},
+    "overall_grade": "B+"
+  },
+  "bull_bear": {
+    "bull": [{"point": "short headline", "evidence": "one line with a specific number"}],
+    "bear": [{"point": "short headline", "evidence": "one line with a specific number"}],
+    "verdict": "one sentence: which case is more credible right now and why"
+  }
+}
+```
+
+Appendix rules:
+- Scores are integers 1–10. Each reason must reference a specific metric from the provided
+  data or a named, verifiable fact — consistent with your Phase 1–3 analysis.
+- `overall_grade` is a letter grade (A+ through F) consistent with the six scores.
+- `bull` and `bear` each contain exactly 4–6 items, condensed from Phase 2.
+- The scores must agree with your Phase 1 verdict scores in direction (no contradictions).
+- Nothing may follow the closing fence.
 """
+
+# Matches the machine-readable appendix emitted per the system prompt above.
+_PRISM_JSON_RE = re.compile(r"```prism-json\s*\n(.*?)\n```", re.DOTALL)
+
+_SCORECARD_AXES = ("growth", "profitability", "moat", "management", "valuation", "risk")
+
+
+def extract_extras(report_text: str) -> tuple[str, dict | None]:
+    """Split a report into (markdown without the prism-json block, parsed extras).
+
+    Returns (original_text, None) when the block is absent, unparseable, or fails
+    shape validation — never destroys content it can't understand, so pre-v1.1
+    reports and malformed model output degrade to plain markdown rendering.
+    """
+    if not report_text:
+        return report_text, None
+    m = _PRISM_JSON_RE.search(report_text)
+    if not m:
+        return report_text, None
+    try:
+        extras = json.loads(m.group(1))
+        scorecard = extras["scorecard"]
+        bull_bear = extras["bull_bear"]
+        for axis in _SCORECARD_AXES:
+            score = scorecard[axis]["score"]
+            if not isinstance(score, int) or not 1 <= score <= 10:
+                raise ValueError(f"bad score for {axis}: {score!r}")
+        if not isinstance(scorecard.get("overall_grade"), str):
+            raise ValueError("missing overall_grade")
+        for side in ("bull", "bear"):
+            items = bull_bear[side]
+            if not isinstance(items, list) or not items:
+                raise ValueError(f"empty {side} case")
+            for item in items:
+                if not item.get("point"):
+                    raise ValueError(f"{side} item missing point")
+    except (KeyError, TypeError, ValueError) as e:
+        print(f"[RESEARCH] prism-json block rejected: {e}")
+        return report_text, None
+    clean = (report_text[: m.start()] + report_text[m.end():]).strip() + "\n"
+    return clean, extras
 
 
 def _fmt(val):

@@ -14,7 +14,7 @@ from services.fmp_service import get_sector_pe, get_valuation, get_profile, sear
 from services.news_service import get_news
 from services.verdict_service import compute_verdict
 from services.scoring import compute_quality_scores, compute_moat
-from services.research_service import run_stock_analysis
+from services.research_service import run_stock_analysis, extract_extras
 from services.auth_service import (
     verify_jwt, get_account_status, consume_research, refund_research,
     save_history, list_history, get_history_report, get_usage_stats, save_feedback,
@@ -29,9 +29,20 @@ app = FastAPI(title="Prism API")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Restrict CORS to the known frontend origins (override via CORS_ORIGINS env, comma-separated).
+# Auth is via Bearer token rather than cookies, so credentials stay off; the regex covers
+# Vercel preview deploys. Stripe webhooks are server-to-server and unaffected by CORS.
+_ALLOWED_ORIGINS = [
+    o.strip() for o in os.environ.get(
+        "CORS_ORIGINS",
+        "https://www.prisminv.com,https://prisminv.com,http://localhost:5173,http://localhost:3000",
+    ).split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -173,10 +184,12 @@ def get_history_one(ticker: str, user=Depends(_get_user)):
     row = get_history_report(user.id, ticker.upper().strip())
     if not row:
         raise HTTPException(status_code=404, detail="no_history")
+    report_md, extras = extract_extras(row["report"])
     return {
         "ticker": row["ticker"],
         "company_name": row.get("company_name"),
-        "report": row["report"],
+        "report": report_md,
+        "extras": extras,
         "created_at": row.get("created_at"),
     }
 
@@ -231,10 +244,12 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
             save_history(user.id, ticker, company_name, report,
                          created_at=shared.get("created_at"), source="shared")
             status = get_account_status(user.id)
+            report_md, extras = extract_extras(report)
             return {
                 "ticker": ticker,
                 "company_name": company_name,
-                "report": report,
+                "report": report_md,
+                "extras": extras,
                 "charge_type": charge_type,
                 "account": status,
             }
@@ -290,10 +305,12 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
 
         save_history(user.id, ticker, company_name, report)
         status = get_account_status(user.id)
+        report_md, extras = extract_extras(report)
         return {
             "ticker": ticker,
             "company_name": company_name,
-            "report": report,
+            "report": report_md,
+            "extras": extras,
             "charge_type": charge_type,
             "account": status,
         }
