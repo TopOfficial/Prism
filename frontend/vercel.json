@@ -1,0 +1,18 @@
+{
+  "rewrites": [
+    { "source": "/r/:ticker", "destination": "https://prism-6ev2.onrender.com/r/:ticker" },
+    { "source": "/sitemap.xml", "destination": "https://prism-6ev2.onrender.com/sitemap.xml" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+      ]
+    }
+  ]
+}

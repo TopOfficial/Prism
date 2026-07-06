@@ -258,3 +258,35 @@ $$;
 -- 5. Make yourself admin (unlimited, no credit charge). Find your UID in
 --    Supabase → Authentication → Users → click your email → User UID.
 -- update public.users set is_admin = true where id = 'your-user-uuid-here';
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 6. v1.1 (Acquisition) — run this whole section once when deploying v1.1
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- 6a. Public shareable report pages (/r/{ticker}). One row per ticker — the
+--     latest publish wins. Only the backend (service role) reads/writes.
+create table if not exists public.public_reports (
+  ticker       text primary key,
+  company_name text,
+  report       text not null,
+  created_at   timestamptz,                         -- when the underlying analysis was generated
+  published_at timestamptz not null default now(),  -- when it was (re)published
+  published_by uuid references auth.users(id) on delete set null
+);
+
+alter table public.public_reports enable row level security;
+create policy "service role: all" on public.public_reports
+  using (true) with check (true);
+
+-- 6b. Daily market news briefing shown on the homepage. One row per date
+--     (US/Eastern); the first request of the day generates and caches it.
+create table if not exists public.market_news (
+  date       date primary key,
+  content    jsonb not null,       -- {indexes, headlines, briefing}
+  created_at timestamptz not null default now()
+);
+
+alter table public.market_news enable row level security;
+create policy "service role: all" on public.market_news
+  using (true) with check (true);

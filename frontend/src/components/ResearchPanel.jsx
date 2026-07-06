@@ -123,6 +123,7 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
   const [errMsg, setErrMsg] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [showExample, setShowExample] = useState(false);
+  const [shareState, setShareState] = useState(null); // null | "publishing" | "copied" | "stale" | "error"
   const timerRef = useRef(null);
   const pollRef = useRef(null);
   const loadedRef = useRef(null); // ticker whose report is currently displayed
@@ -261,6 +262,30 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
       setStatus("error");
     } finally {
       try { localStorage.removeItem(key); } catch {}
+    }
+  }
+
+  // Publish this report to the public /r/{ticker} page and copy the link.
+  async function handleShare() {
+    setShareState("publishing");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setShareState("error"); return; }
+      const res = await fetch(`${apiBase}/publish/${ticker}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setShareState(body.detail === "stale_report" ? "stale" : "error");
+        return;
+      }
+      const publicUrl = `${window.location.origin}/r/${ticker}`;
+      try { await navigator.clipboard.writeText(publicUrl); } catch { /* clipboard blocked — link still shown */ }
+      setShareState("copied");
+      setTimeout(() => setShareState(null), 4000);
+    } catch {
+      setShareState("error");
     }
   }
 
@@ -496,6 +521,20 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
               <span style={{ fontSize: 12, color: "#3D5068" }}>
                 {createdAt && `Generated ${new Date(createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
               </span>
+              <div className="flex items-center gap-2 ml-auto">
+                <span style={{ fontSize: 11, color: shareState === "copied" ? "#34D399" : "#FCD34D", fontFamily: "'Space Grotesk', sans-serif" }}>
+                  {shareState === "copied" && "✓ Public link copied"}
+                  {shareState === "stale" && "Report too old to share — re-analyze first"}
+                  {shareState === "error" && "Couldn't publish — try again"}
+                </span>
+                <button onClick={handleShare} disabled={shareState === "publishing"}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition-all"
+                  style={{ background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.3)", color: "#34D399", opacity: shareState === "publishing" ? 0.6 : 1 }}
+                  onMouseEnter={e => e.currentTarget.style.background = "rgba(52,211,153,0.2)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "rgba(52,211,153,0.1)"}>
+                  {shareState === "publishing" ? "Publishing…" : "⤴ Share"}
+                </button>
+              </div>
               <button onClick={handleRun}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition-all"
                 style={{ background: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.3)", color: "#A855F7" }}

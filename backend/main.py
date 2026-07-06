@@ -22,6 +22,9 @@ from services.auth_service import (
     get_user_record,
 )
 from services.stripe_service import create_checkout_session, handle_webhook, create_portal_session
+from services.public_service import (
+    publish_report, render_public_page, sitemap_xml, is_valid_ticker, PublishError,
+)
 
 security = HTTPBearer(auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
@@ -192,6 +195,48 @@ def get_history_one(ticker: str, user=Depends(_get_user)):
         "extras": extras,
         "created_at": row.get("created_at"),
     }
+
+
+@app.post("/publish/{ticker}")
+@limiter.limit("20/hour")
+def publish(ticker: str, request: Request, user=Depends(_get_user)):
+    """Publish the caller's own fresh (<7 days) report to the public /r/{ticker} page."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    ticker = ticker.upper().strip()
+    if not is_valid_ticker(ticker):
+        raise HTTPException(status_code=422, detail="bad_ticker")
+    try:
+        result = publish_report(user.id, ticker)
+    except PublishError as e:
+        raise HTTPException(status_code=409 if e.code == "stale_report" else 404, detail=e.code)
+    except Exception as e:
+        print(f"[PUBLIC] publish {ticker} failed: {e}")
+        raise HTTPException(status_code=500, detail="publish_failed")
+    return result
+
+
+@app.get("/r/{ticker}")
+@limiter.limit("120/minute")
+def public_report_page(ticker: str, request: Request):
+    """Server-rendered public report page (proxied onto prisminv.com via Vercel rewrite)."""
+    from fastapi.responses import HTMLResponse
+    ticker = ticker.upper().strip()
+    if not is_valid_ticker(ticker):
+        raise HTTPException(status_code=404, detail="not_found")
+    page = render_public_page(ticker)
+    if page is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return HTMLResponse(page, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/sitemap.xml")
+def sitemap():
+    from fastapi.responses import Response
+    return Response(
+        sitemap_xml(), media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=21600"},
+    )
 
 
 @app.post("/research/{ticker}")
