@@ -13,6 +13,7 @@ import ProfileModal from "./components/ProfileModal";
 import HistorySidebar from "./components/HistorySidebar";
 import MarketNews from "./components/MarketNews";
 import WatchlistTab from "./components/WatchlistTab";
+import PortfolioTab from "./components/PortfolioTab";
 import { Analytics } from "@vercel/analytics/react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -378,7 +379,7 @@ export default function App() {
                 {[
                   { id: "brief", label: "Brief" },
                   { id: "research", label: "Deep Research" },
-                  ...(user ? [{ id: "watchlist", label: "Watchlist" }, { id: "history", label: "History" }] : []),
+                  ...(user ? [{ id: "watchlist", label: "Watchlist" }, { id: "portfolio", label: "Portfolio" }, { id: "history", label: "History" }] : []),
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
@@ -468,6 +469,13 @@ export default function App() {
                     onRemove={t => toggleWatch(t)}
                     onUpgrade={handleUpgrade}
                   />
+                </div>
+              )}
+
+              {/* Tab: Portfolio */}
+              {user && (
+                <div style={{ display: activeTab === "portfolio" ? "block" : "none" }}>
+                  <PortfolioTab apiBase={API} onUpgrade={handleUpgrade} onSelect={t => handleSearch(t)} />
                 </div>
               )}
 

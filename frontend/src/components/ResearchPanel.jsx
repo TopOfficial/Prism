@@ -5,6 +5,7 @@ import ScorecardCard from "./ScorecardCard";
 import BullBearDebate from "./BullBearDebate";
 import ComparablesTable from "./ComparablesTable";
 import ResearchChat from "./ResearchChat";
+import ThesisCard from "./ThesisCard";
 
 // Code-split the markdown renderer — only loaded when a report is shown.
 const MarkdownReport = lazy(() => import("./MarkdownReport"));
@@ -569,7 +570,10 @@ export default function ResearchPanel({ ticker, user, account, canRun, hasHistor
             </Suspense>
 
             {user && (
-              <ResearchChat ticker={ticker} apiBase={apiBase} onUpgrade={onUpgrade} />
+              <>
+                <ResearchChat ticker={ticker} apiBase={apiBase} onUpgrade={onUpgrade} />
+                <ThesisCard ticker={ticker} apiBase={apiBase} />
+              </>
             )}
           </div>
         )}
