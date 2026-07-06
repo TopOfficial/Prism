@@ -12,6 +12,7 @@ import PricingModal from "./components/PricingModal";
 import ProfileModal from "./components/ProfileModal";
 import HistorySidebar from "./components/HistorySidebar";
 import MarketNews from "./components/MarketNews";
+import WatchlistTab from "./components/WatchlistTab";
 import { Analytics } from "@vercel/analytics/react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -47,6 +48,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [account, setAccount] = useState(loadCachedAccount);
   const [history, setHistory] = useState([]);
+  const [watchlist, setWatchlist] = useState({ items: [], limit: null });
   const [activeTab, setActiveTab] = useState("brief");
 
   // A user can run a fresh analysis if they're admin, subscribed, have a free weekly run, or hold credits.
@@ -86,17 +88,31 @@ export default function App() {
     }
   }
 
+  async function fetchWatchlist(session) {
+    if (!session) { setWatchlist({ items: [], limit: null }); return; }
+    try {
+      const res = await fetch(`${API}/watchlist`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) setWatchlist(await res.json());
+    } catch {
+      // keep current value on network error
+    }
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       fetchAccount(session);
       fetchHistory(session);
+      fetchWatchlist(session);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) setShowAuth(false);
       fetchAccount(session);
       fetchHistory(session);
+      fetchWatchlist(session);
     });
     return () => subscription.unsubscribe();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
@@ -156,10 +172,30 @@ export default function App() {
     fetchHistory(session);
   }
 
+  // Toggle watch on the currently loaded ticker. 402 = free-tier limit → pricing modal.
+  async function toggleWatch(t, companyName) {
+    if (!user) { setShowAuth(true); return; }
+    const watching = watchlist.items.some(w => w.ticker === t);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${API}/watchlist/${t}`, {
+        method: watching ? "DELETE" : "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        ...(watching ? {} : { body: JSON.stringify({ company_name: companyName || null }) }),
+      });
+      if (res.status === 402) { setShowPricing(true); return; }
+      if (res.ok) fetchWatchlist(session);
+    } catch {
+      // leave state as-is on network error
+    }
+  }
+
   async function handleSignOut() {
     setShowProfile(false);
     setAccountCached(EMPTY_ACCOUNT);
     setHistory([]);
+    setWatchlist({ items: [], limit: null });
     setActiveTab("brief");
     await supabase.auth.signOut();
   }
@@ -342,7 +378,7 @@ export default function App() {
                 {[
                   { id: "brief", label: "Brief" },
                   { id: "research", label: "Deep Research" },
-                  ...(user ? [{ id: "history", label: "History" }] : []),
+                  ...(user ? [{ id: "watchlist", label: "Watchlist" }, { id: "history", label: "History" }] : []),
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
@@ -357,8 +393,25 @@ export default function App() {
                   </button>
                 ))}
 
+                {user && data && (() => {
+                  const watching = watchlist.items.some(w => w.ticker === data.ticker);
+                  return (
+                    <button onClick={() => toggleWatch(data.ticker, data.company_name)}
+                      className="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition-all"
+                      style={{
+                        background: watching ? "rgba(252,211,77,0.12)" : "rgba(255,255,255,0.04)",
+                        border: `1px solid ${watching ? "rgba(252,211,77,0.4)" : "rgba(255,255,255,0.1)"}`,
+                        color: watching ? "#FCD34D" : "#64748B",
+                        fontFamily: "'Space Grotesk', sans-serif",
+                        marginBottom: 4,
+                      }}>
+                      {watching ? "★ Watching" : "☆ Watch"}
+                    </button>
+                  );
+                })()}
+
                 {user && (
-                  <span className="ml-auto text-xs px-2" style={{ color: "#4E6278", fontFamily: "'Space Grotesk', sans-serif" }}>
+                  <span className={`text-xs px-2 ${data ? "" : "ml-auto"}`} style={{ color: "#4E6278", fontFamily: "'Space Grotesk', sans-serif" }}>
                     {account.is_admin ? "Unlimited"
                       : account.is_subscriber ? "Pro · Unlimited"
                       : <>
@@ -403,6 +456,20 @@ export default function App() {
                   <EmptyTab text="Search a ticker above, then run Deep Research." />
                 )}
               </div>
+
+              {/* Tab: Watchlist */}
+              {user && (
+                <div style={{ display: activeTab === "watchlist" ? "block" : "none" }}>
+                  <WatchlistTab
+                    items={watchlist.items}
+                    limit={watchlist.limit}
+                    activeTicker={data?.ticker}
+                    onSelect={t => handleSearch(t)}
+                    onRemove={t => toggleWatch(t)}
+                    onUpgrade={handleUpgrade}
+                  />
+                </div>
+              )}
 
               {/* Tab: History */}
               {user && (
