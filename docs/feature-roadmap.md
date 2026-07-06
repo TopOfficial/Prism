@@ -135,7 +135,13 @@ Ask follow-up questions about a report; AI remembers prior conversations per tic
 
 ---
 
-## v1.4 — Portfolio layer (requires trust; sell the subscription)
+## v1.4 — Portfolio layer (requires trust; sell the subscription) — ✅ SHIPPED 2026-07-07 (code complete)
+
+**Status: built + tested 2026-07-07** (95 backend tests green, frontend lint+build clean). Plan: `docs/plans/2026-07-07-v1.4-portfolio.md`.
+
+**Deploy actions (user):** run **section 9** of `docs/supabase-setup.sql` (`holdings` + `theses`), push backend + frontend.
+
+Implementation notes: paste-in holdings only (no broker-export auto-detect, max 50); analytics (weights, sector exposure, HHI concentration, weighted P/E, gain vs cost basis) computed from FMP data with a 1h cache and free for signed-in users; the Sonnet assessment is subscriber-gated (simplified from "3 credits/analysis" — one charging path fewer). Thesis tracker+journal merged as planned: one thesis per (user,ticker), checkpoints appended by the v1.2 alert cron on earnings events (stronger/weaker/broken/mixed + evidence note), verdict also included in the alert email digest.
 
 ### 8. Portfolio analyzer
 Upload holdings → risk, overlap, sector exposure, valuation, AI suggestions.
