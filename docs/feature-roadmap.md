@@ -19,9 +19,22 @@ Written 2026-07-07. Current state: v1.0 live (Brief free/unlimited, Deep Researc
 
 ---
 
-## v1.1 — Acquisition (make Prism findable and shareable)
+## v1.1 — Acquisition (make Prism findable and shareable) — ✅ SHIPPED 2026-07-07 (code complete)
 
 Goal: turn Prism's output into things that travel — screenshots, links, indexed pages. All four features are low-infra; two are prompt-layer only.
+
+**Status: all four features built + tested 2026-07-07** (63 backend tests green, frontend lint+build clean, live end-to-end run verified the prism-json appendix parses — AAPL scored B+ with 4 bull / 5 bear items). Implementation plan: `docs/plans/2026-07-07-v1.1-acquisition.md`.
+
+**Deploy actions (user, before these go live):**
+1. Supabase → SQL Editor → run **section 6** of `docs/supabase-setup.sql` (creates `public_reports` + `market_news`).
+2. Push to deploy backend (Render — picks up new `markdown` dep from requirements.txt) and frontend (Vercel — picks up `/r/*` + `/sitemap.xml` rewrites in vercel.json).
+3. After first publish, submit `https://www.prisminv.com/sitemap.xml` in Google Search Console.
+
+Implementation notes vs. the original spec:
+- Bull/Bear + scorecard ride a machine-readable `prism-json` appendix on the existing single Sonnet call; `extract_extras()` strips it server-side. Old saved reports render unchanged (`extras: null`).
+- Scorecard PNG is drawn on a raw canvas (1200×630) — no new frontend deps.
+- Public pages are served by FastAPI and proxied onto prisminv.com via Vercel rewrites; publishing requires the caller's own report to be <7 days old; pages carry OG/meta + staleness banner; report markdown is HTML-neutralized before render.
+- Market news: `market_news` table keyed by US/Eastern date; Haiku (`claude-haiku-4-5-20251001`) writes the briefing; briefing failure degrades to indexes+headlines.
 
 ### 1. Bull vs Bear debate
 Side-by-side bull and bear cases in every Deep Research report.
