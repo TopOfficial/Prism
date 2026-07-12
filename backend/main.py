@@ -20,7 +20,7 @@ from services.auth_service import (
     verify_jwt, get_account_status, consume_research, refund_research,
     save_history, list_history, get_history_report, get_usage_stats, save_feedback,
     get_shared_report, acquire_research_lock, release_research_lock, delete_account,
-    get_user_record,
+    get_user_record, log_research_event,
 )
 from services.stripe_service import create_checkout_session, handle_webhook, create_portal_session
 from services.public_service import (
@@ -311,6 +311,7 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
             company_name = shared.get("company_name") or company_name
             save_history(user.id, ticker, company_name, report,
                          created_at=shared.get("created_at"), source="shared")
+            log_research_event(user.id, user.email, ticker, charge_type, source="shared")
             status = get_account_status(user.id)
             report_md, extras, comparables = split_report(report)
             return {
@@ -383,6 +384,7 @@ def run_research(ticker: str, request: Request, user=Depends(_get_user)):
 
         report = attach_comps(report, comps)
         save_history(user.id, ticker, company_name, report)
+        log_research_event(user.id, user.email, ticker, charge_type, source="fresh")
         status = get_account_status(user.id)
         report_md, extras, comparables = split_report(report)
         return {

@@ -178,6 +178,7 @@ def client_with_stubs(monkeypatch):
     # Default: lock acquired; tests that exercise contention override this.
     monkeypatch.setattr(main, "acquire_research_lock", lambda u, t: True)
     monkeypatch.setattr(main, "release_research_lock", MagicMock())
+    monkeypatch.setattr(main, "log_research_event", MagicMock())
     main.app.dependency_overrides[main._get_user] = lambda: _FakeUser()
     yield TestClient(main.app)
     main.app.dependency_overrides.clear()

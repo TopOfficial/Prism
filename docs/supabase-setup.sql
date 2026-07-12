@@ -380,3 +380,29 @@ create policy "service role: all" on public.theses
 
 -- Supports the alert job's per-ticker thesis lookup.
 create index if not exists theses_ticker_idx on public.theses (ticker);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 10. Deep Research usage log — run this whole section once when deploying
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Append-only event log: one row per successful Deep Research run (fresh or
+-- shared-cache reuse). research_history can't serve this — it upserts one row
+-- per (user, ticker), so a re-analysis overwrites the previous timestamp.
+-- Cascades on user deletion, consistent with the delete-account promise.
+create table if not exists public.research_events (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  email       text,
+  ticker      text not null,
+  charge_type text not null,          -- 'unlimited' | 'free_weekly' | 'credit'
+  source      text not null,          -- 'fresh' | 'shared'
+  created_at  timestamptz not null default now()
+);
+
+alter table public.research_events enable row level security;
+create policy "service role: all" on public.research_events
+  using (true) with check (true);
+
+-- Supports the admin dashboard's newest-first log view.
+create index if not exists research_events_created_idx
+  on public.research_events (created_at desc);

@@ -185,6 +185,38 @@ def save_feedback(ticker: str, verdict: str, thumbs: str, comment: str) -> bool:
         return False
 
 
+def log_research_event(user_id: str, email: str | None, ticker: str,
+                        charge_type: str, source: str) -> None:
+    """Append one row to the admin usage log for a successful Deep Research run.
+    Best-effort: logging must never break a run the user already paid for."""
+    try:
+        _sb().table("research_events").insert({
+            "user_id": user_id,
+            "email": email,
+            "ticker": ticker,
+            "charge_type": charge_type,
+            "source": source,
+        }).execute()
+    except Exception as e:
+        print(f"[AUTH] log_research_event failed for {user_id}/{ticker}: {e}")
+
+
+def list_research_events(limit: int = 100) -> list:
+    """Newest-first Deep Research runs for the admin dashboard."""
+    try:
+        res = (
+            _sb().table("research_events")
+            .select("email, ticker, charge_type, source, created_at")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        print(f"[AUTH] list_research_events failed: {e}")
+        return []
+
+
 # ── Per-user research history ──────────────────────────────────────────────────
 
 def save_history(user_id: str, ticker: str, company_name: str | None, report: str,
@@ -276,6 +308,7 @@ def get_usage_stats() -> dict:
     top_tickers = Counter(h["ticker"] for h in hist if h.get("ticker")).most_common(15)
 
     return {
+        "recent_research": list_research_events(),
         "total_runs": len(hist),
         "runs_last_7_days": runs_7d,
         "shared_reuses_7d": shared_reuses_7d,

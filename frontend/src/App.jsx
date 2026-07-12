@@ -15,6 +15,7 @@ import MarketNews from "./components/MarketNews";
 import WatchlistTab from "./components/WatchlistTab";
 import PortfolioTab from "./components/PortfolioTab";
 import ScenarioModel from "./components/ScenarioModel";
+import AdminTab from "./components/AdminTab";
 import MacroStrip from "./components/MacroStrip";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -387,6 +388,7 @@ export default function App() {
                   { id: "brief", label: "Brief" },
                   { id: "research", label: "Deep Research" },
                   ...(user ? [{ id: "watchlist", label: "Watchlist" }, { id: "portfolio", label: "Portfolio" }, { id: "history", label: "History" }] : []),
+                  ...(user && account.is_admin ? [{ id: "admin", label: "Admin" }] : []),
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     className="text-xs font-semibold uppercase tracking-widest px-4 py-2.5 cursor-pointer transition-all"
@@ -493,6 +495,12 @@ export default function App() {
                 <div style={{ display: activeTab === "history" ? "block" : "none" }}>
                   <HistorySidebar items={history} activeTicker={data?.ticker} onSelect={openFromHistory} />
                 </div>
+              )}
+
+              {/* Tab: Admin — usage stats + Deep Research log. Mounted only while open so
+                  /stats is fetched on entry, not on every page load. */}
+              {user && account.is_admin && activeTab === "admin" && (
+                <AdminTab apiBase={API} />
               )}
             </div>
           )}
